@@ -27,6 +27,15 @@ jobs:
       TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
 
     steps:
+      # À la demande, le tag est saisi à la main : on le vérifie avant d'en
+      # extraire quoi que ce soit, sinon `1.2.3`, une branche ou un SHA
+      # construirait depuis une référence que personne n'a voulu publier.
+      - name: Vérifier la forme du tag
+        run: |
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "Le tag « $env:TAG » n'a pas la forme v1.2.3."
+          }
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
