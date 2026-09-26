@@ -1,0 +1,127 @@
+/* GW2RP Overlay — feuille d'entrée.
+ * Tailwind CSS v4 branché sur les jetons du design system Tyrie RP. Les valeurs
+ * ne sont jamais recopiées ici : tout pointe vers tokens.css, qui est le même
+ * fichier que celui du hub.
+ */
+
+@import "tailwindcss";
+/* Les jetons entrent dans la couche `base` : les styles de texte qu'ils portent
+   (.body, .meta…) restent donc surchargeables par un utilitaire Tailwind. */
+@import "./tokens.css" layer(base);
+
+/* Le thème sombre est porté par data-theme sur <html>. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-surface-inset: var(--surface-inset);
+  --color-surface-selected: var(--surface-selected);
+
+  --color-ink: var(--ink);
+  --color-ink-body: var(--ink-body);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+
+  --color-rule: var(--rule);
+  --color-hairline: var(--hairline);
+
+  --color-gold: var(--gold);
+  --color-gold-ink: var(--gold-ink);
+  --color-gold-eyebrow: var(--gold-eyebrow);
+
+  --color-crimson: var(--crimson);
+  --color-crimson-edge: var(--crimson-edge);
+  --color-crimson-ink: var(--crimson-ink);
+  --color-on-crimson: var(--on-crimson);
+
+  --color-chip: var(--chip-bg);
+  --color-chip-edge: var(--chip-edge);
+
+  --color-success: var(--success);
+  --color-success-edge: var(--success-edge);
+  --color-neutral-badge: var(--neutral-badge);
+
+  --color-rain: var(--rain);
+  --color-rain-edge: var(--rain-edge);
+
+  --color-scrim: var(--scrim);
+
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+
+  --radius-none: var(--radius-none);
+  --radius-round: var(--radius-round);
+
+  --spacing-tap: var(--tap-min);
+}
+
+@layer base {
+  * {
+    border-color: var(--rule);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* Rien à sélectionner par-dessus un jeu : un double-clic qui surlignerait
+       la moitié d'un panneau dirait le contraire. */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Une fenêtre d'overlay n'a pas de fond : c'est le jeu qu'on voit au travers.
+     Chaque élément porte sa propre surface. La fenêtre principale, elle, se
+     pose sur le parchemin, comme une page du hub. */
+  body {
+    margin: 0;
+    background: transparent;
+    color: var(--ink);
+    font-family: var(--font-body);
+    overflow: hidden;
+  }
+
+  body[data-fenetre="principale"] {
+    background: var(--ground);
+    overflow: auto;
+  }
+
+  input,
+  textarea {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  /* Le focus n'est jamais supprimé : contour doré, décalé de 2 px. */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+
+  /* Le système ne porte aucune animation. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Le double cadre : signature du système. */
+  .framed {
+    border: var(--border-frame) solid var(--rule);
+    padding: 10px;
+    background: var(--surface);
+  }
+
+  /* La hachure à 135° des placeholders. */
+  .hatch {
+    background: repeating-linear-gradient(
+      135deg,
+      var(--map-hatch-a) 0 11px,
+      var(--map-hatch-b) 11px 22px
+    );
+  }
+}

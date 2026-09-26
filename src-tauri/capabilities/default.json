@@ -1,0 +1,38 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Ce que les fenêtres de l'overlay ont le droit de faire : ouvrir et régler leurs fenêtres transparentes, parler au hub et à l'API du jeu, ranger leurs réglages, écouter le raccourci d'édition.",
+  "windows": ["principale", "overlay-*"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-start-dragging",
+    "core:window:allow-outer-position",
+    "core:window:allow-outer-size",
+    "core:window:allow-inner-size",
+    "core:window:allow-scale-factor",
+    "store:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://www.gw2rp.eu/*" },
+        { "url": "https://*.vercel.app/*" },
+        { "url": "http://localhost:3000/*" },
+        { "url": "https://api.guildwars2.com/*" }
+      ]
+    }
+  ]
+}

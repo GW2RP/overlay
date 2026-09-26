@@ -1,0 +1,104 @@
+# GW2RP Overlay
+
+L'application bureau du hub [GW2RP Nexus](https://www.gw2rp.eu) : des éléments
+posés par-dessus Guild Wars 2, qui suivent le personnage joué.
+
+- **Météo** — le temps qu'il fait, dans la simulation du hub, là où le
+  personnage se tient.
+- **Lieux à proximité** — les lieux de jeu de rôle du registre autour de lui,
+  du plus proche au plus éloigné, avec leur direction et leurs scènes à venir.
+- **Personnage** — son nom, sa race, sa profession, sa carte et sa position
+  dans le repère du hub.
+
+Le hub n'est affilié ni à ArenaNet, LLC ni à NCSOFT.
+
+## La pile
+
+| | |
+| --- | --- |
+| Cadre | Tauri 2 (Rust) — fenêtres transparentes, plateau, raccourci global |
+| Interface | React 19 + Tailwind CSS v4, sur les jetons du design system Tyrie RP |
+| Jeu | Lien Mumble de Guild Wars 2 (mémoire partagée `MumbleLink`) |
+| Hub | `https://www.gw2rp.eu`, session par jeton (greffon `bearer` de Better Auth) |
+| Cartes | API publique du jeu, `/v2/maps/{id}`, pour poser chaque carte sur le continent |
+
+## Comment ça marche
+
+Le jeu publie à chaque image un bloc de mémoire partagée — le protocole du
+logiciel de voix Mumble, complété d'un contexte à lui : la carte, la position du
+personnage dans le repère de cette carte, son nom, sa profession. L'application
+le lit quatre fois par seconde. Rien n'est injecté dans le jeu.
+
+L'API publique du jeu dit quel rectangle du continent chaque carte occupe ; la
+position se projette alors en **pixels de continent**, le repère dans lequel le
+hub range ses lieux et joue sa météo. Le reste est deux lectures du hub :
+`/api/meteo/point` pour le ciel, `/api/lieux/proximite` pour les lieux.
+
+Chaque élément est une fenêtre transparente, toujours au-dessus du jeu. Hors
+édition, **les clics la traversent** et atteignent le jeu. En édition —
+`Ctrl+Maj+O`, ou le bouton de la fenêtre principale — elle se déplace, se
+redimensionne et se ferme, et reprend sa place au prochain démarrage.
+
+Le jeu doit être en **fenêtré plein écran** : en plein écran exclusif, rien ne
+se dessine par-dessus.
+
+## Démarrer
+
+Il faut [Node 22](https://nodejs.org), [Rust](https://rustup.rs) et les
+[prérequis de Tauri](https://v2.tauri.app/start/prerequisites/) pour Windows
+(outils de compilation C++ de Visual Studio et WebView2).
+
+```bash
+npm install
+npm run tauri dev
+```
+
+La fenêtre principale demande une connexion au hub — le compte est celui du
+site, courriel et mot de passe. Une fois connecté, chaque élément s'affiche ou
+se masque depuis cette fenêtre.
+
+Pour un hub local (`npm run dev` dans le dépôt `nexus`), choisir
+`http://localhost:3000` dans la liste « Hub » de l'écran de connexion. Le hub
+doit porter le greffon `bearer` : c'est lui qui rend le jeton de session à
+l'application.
+
+```bash
+npm run tauri build     # installeurs NSIS et MSI dans src-tauri/target/release/bundle
+```
+
+## Vérifier
+
+```bash
+npm run typecheck && npm run lint && npm run build
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+Le workflow `.github/workflows/verifier.yml` rejoue ces vérifications sous
+Windows et publie les installeurs en artefact.
+
+## Où les choses vivent
+
+```
+src/
+  main.tsx              l'entrée : l'ancre de la fenêtre dit laquelle elle est
+  fenetres/             la fenêtre principale, et le cadre commun des overlays
+  elements/             météo, lieux à proximité, personnage
+  lib/
+    mumble.ts           le lien du jeu, tel que Rust l'émet
+    gw2.ts              les cartes du jeu, décrites par son API et rangées
+    carte.ts            la projection en pixels de continent, distances, directions
+    position.ts         où le personnage se tient, pour le hub
+    nexus.ts            le client du hub : session par jeton, météo, lieux
+    overlays.ts         les éléments, et ce que Rust en tient
+    reglages.ts         le magasin persistant
+    domaine.ts          le vocabulaire du hub et du jeu
+  styles/tokens.css     les jetons du design system — le même fichier que le hub
+src-tauri/
+  src/mumble.rs         la mémoire partagée du jeu, et son décodage
+  src/overlays.rs       montrer, cacher, mode d'édition
+  src/plateau.rs        l'icône de la zone de notification
+  tauri.conf.json       les fenêtres, une par élément
+  capabilities/         ce que les fenêtres ont le droit de faire
+```

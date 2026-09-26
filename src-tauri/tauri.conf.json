@@ -1,0 +1,114 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "GW2RP Overlay",
+  "version": "0.1.0",
+  "identifier": "eu.gw2rp.overlay",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "principale",
+        "title": "GW2RP Overlay",
+        "url": "index.html#/principale",
+        "width": 480,
+        "height": 760,
+        "minWidth": 400,
+        "minHeight": 560,
+        "resizable": true,
+        "decorations": true,
+        "backgroundColor": "#17120e"
+      },
+      {
+        "label": "overlay-meteo",
+        "title": "GW2RP — Météo",
+        "url": "index.html#/meteo",
+        "width": 320,
+        "height": 150,
+        "minWidth": 240,
+        "minHeight": 100,
+        "x": 40,
+        "y": 40,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false,
+        "focus": false
+      },
+      {
+        "label": "overlay-lieux",
+        "title": "GW2RP — Lieux à proximité",
+        "url": "index.html#/lieux",
+        "width": 340,
+        "height": 320,
+        "minWidth": 260,
+        "minHeight": 140,
+        "x": 40,
+        "y": 210,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false,
+        "focus": false
+      },
+      {
+        "label": "overlay-personnage",
+        "title": "GW2RP — Personnage",
+        "url": "index.html#/personnage",
+        "width": 320,
+        "height": 110,
+        "minWidth": 240,
+        "minHeight": 80,
+        "x": 40,
+        "y": 550,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false,
+        "focus": false
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self'",
+        "img-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "publisher": "La communauté GW2RP",
+    "category": "Utility",
+    "shortDescription": "L'overlay de jeu du hub GW2RP Nexus",
+    "longDescription": "Affiche par-dessus Guild Wars 2 la météo simulée du hub et les lieux de jeu de rôle à proximité du personnage joué.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
+    }
+  }
+}
