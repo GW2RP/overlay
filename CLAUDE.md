@@ -81,7 +81,9 @@ fenêtre principale (`opacite`, en pourcent, borné à la lecture) change l'alph
 du fond et du bord du panneau (`.panneau-overlay`) ; le texte reste entier, sans
 quoi il deviendrait illisible dès que la scène s'éclaire. En édition, le panneau
 redevient plein : on le saisit par son cadre, et un cadre à demi effacé se
-cherche.
+cherche. **La fiche ne suit pas ce réglage** : les éléments restent posés sur
+le jeu et doivent le laisser voir, la fiche s'ouvre pour être lue et se
+referme ; ouverte, son fond est toujours plein.
 
 Un élément **reprend sa place** au démarrage : son cadre s'écrit dans les
 réglages à chaque déplacement (`ecrireCadre`), en pixels physiques d'écran, et

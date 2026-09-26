@@ -49,7 +49,8 @@ fenêtre principale — chaque fenêtre se déplace, se redimensionne et se ferm
 et reprend sa place au prochain démarrage.
 
 L'opacité du fond des éléments se règle depuis la fenêtre principale ; le
-texte reste entier quelle que soit la valeur.
+texte reste entier quelle que soit la valeur, et la fiche d'un lieu, ouverte
+pour être lue, garde toujours un fond plein.
 
 Le jeu doit être en **fenêtré plein écran** : en plein écran exclusif, rien ne
 se dessine par-dessus.
