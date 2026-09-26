@@ -54,6 +54,17 @@ jobs:
             throw "Le tag $env:TAG ne correspond pas : $($ecarts -join ', '). Alignez les versions avant de publier."
           }
 
+      # Sans clé publique, l'application ne peut vérifier ce qu'elle
+      # télécharge : le greffon refuserait la release que ce passage publie.
+      # Dit ici plutôt que découvert par les utilisateurs après coup.
+      - name: Vérifier que la mise à jour automatique est configurée
+        run: |
+          $pubkey = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).plugins.updater.pubkey
+
+          if ([string]::IsNullOrWhiteSpace($pubkey)) {
+            throw 'plugins.updater.pubkey est vide. Générez une paire de clés (voir README) et rangez la privée dans les secrets du dépôt avant de publier.'
+          }
+
       # À la demande, la release peut manquer : vérifié ici plutôt qu'après
       # quatre minutes de compilation.
       - name: Vérifier que la release existe
@@ -101,8 +112,15 @@ jobs:
       - name: Construire le front
         run: npm run build
 
+      # `updater.conf.json` ajoute `createUpdaterArtifacts`, ce qui fait signer
+      # les installeurs par l'empaqueteur. Tenu hors de tauri.conf.json pour que
+      # `verifier.yml`, qui n'a pas de clé, continue de construire.
       - name: Construire les installeurs
-        run: npm run tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        # Le chemin se résout depuis le dossier de travail, pas depuis src-tauri.
+        run: npm run tauri build -- --config src-tauri/updater.conf.json
 
       # La release est écrite à la main, notes comprises ; ceci n'y accroche que
       # les installeurs. En créer une ici doublerait celle qui vient d'être
@@ -136,3 +154,70 @@ jobs:
             @('--clobber')
 
           gh @arguments
+
+      # Ce que l'application en marche lit pour apprendre qu'une version plus
+      # récente existe. Écrit après le téléversement : il doit porter l'adresse
+      # que GitHub a réellement donnée à l'installeur — les noms de fichiers
+      # attachés ne sont pas les noms sur disque, les espaces deviennent des
+      # points.
+      - name: Publier le manifeste de mise à jour
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $installeur = Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis/*-setup.exe' -File |
+            Select-Object -First 1
+
+          if (-not $installeur) {
+            throw "Aucun installeur NSIS à annoncer."
+          }
+
+          # L'empaqueteur l'écrit à côté de l'installeur, et seulement s'il a
+          # une clé. Son absence veut dire une release que le greffon refusera.
+          $signature = "$($installeur.FullName).sig"
+          if (-not (Test-Path $signature)) {
+            throw "Pas de signature à côté de $($installeur.Name). TAURI_SIGNING_PRIVATE_KEY est-il dans les secrets du dépôt ?"
+          }
+
+          $url = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:TAG" `
+            --jq '.assets[] | select(.name | endswith("-setup.exe")) | .browser_download_url' |
+            Select-Object -First 1
+
+          if (-not $url) {
+            throw "L'installeur n'est pas parmi les fichiers de la release."
+          }
+
+          # Les notes sont celles de la release ; l'écran de mise à jour les
+          # montre. Recollées : PowerShell rend la sortie d'une commande native
+          # en tableau de lignes dès qu'il y en a plus d'une, et ConvertTo-Json
+          # écrirait un tableau là où le greffon attend une chaîne.
+          $notes = (gh release view $env:TAG --json body --jq .body) -join "`n"
+
+          $manifeste = [ordered]@{
+            version   = $env:TAG.TrimStart('v')
+            notes     = $notes
+            pub_date  = (Get-Date).ToUniversalTime().ToString('o')
+            platforms = [ordered]@{
+              'windows-x86_64' = [ordered]@{
+                signature = (Get-Content $signature -Raw).Trim()
+                url       = $url
+              }
+            }
+          }
+
+          $manifeste | ConvertTo-Json -Depth 5 | Set-Content latest.json -Encoding utf8
+
+          # Relu et vérifié contre ce que le greffon accepte : un manifeste
+          # qu'il ne sait pas lire passe pour « aucune mise à jour », et une
+          # erreur ici serait silencieuse pour tous ceux qui ont installé.
+          $relu = Get-Content latest.json -Raw | ConvertFrom-Json
+
+          if ($relu.notes -isnot [string]) {
+            throw "Les notes du manifeste doivent être une seule chaîne, reçu $($relu.notes.GetType().Name)."
+          }
+          if ([string]::IsNullOrWhiteSpace($relu.platforms.'windows-x86_64'.signature)) {
+            throw "Le manifeste ne porte pas de signature."
+          }
+
+          Write-Host "annonce $url"
+
+          gh release upload $env:TAG latest.json --clobber

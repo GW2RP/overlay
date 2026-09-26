@@ -123,6 +123,18 @@ pub fn run() {
                 eprintln!("l'icône du plateau n'est pas disponible : {erreur}");
             }
 
+            // Enregistré ici et non sur le constructeur, et sans faire tomber
+            // le lancement : le greffon relit sa configuration au démarrage,
+            // et une configuration qu'il refuse — une clé publique vide, une
+            // adresse mal formée — coûterait l'application entière. Perdre la
+            // vérification des mises à jour ne vaut pas de la refuser.
+            if let Err(erreur) = app
+                .handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())
+            {
+                eprintln!("la mise à jour automatique n'est pas disponible : {erreur}");
+            }
+
             // Le raccourci s'enregistre depuis Rust : il doit tomber pendant que
             // le jeu a le clavier et qu'aucune fenêtre de l'application n'a le
             // focus. Un système qui le refuse ne fait pas tomber le lancement :

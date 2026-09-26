@@ -181,6 +181,20 @@ greffon `http`, demande la chaîne MSVC. Ailleurs, `cargo test` sur le module
 
 ## Publier
 
+**Les greffons Tauri vont par deux**, un crate et un paquet npm, et le CLI
+refuse de construire si leurs versions majeure et mineure diffèrent.
+`Cargo.toml` et `package.json` écrivent la même mineure pour chacun ; une montée
+se fait des deux côtés, et les deux verrous suivent.
+
+**La mise à jour automatique** lit `latest.json` sur la dernière release
+publiée et refuse ce qu'elle ne peut pas vérifier : la clé publique est dans
+`tauri.conf.json`, la privée dans les secrets du dépôt, et `publier.yml` signe
+les installeurs avec `--config src-tauri/updater.conf.json` — tenu hors de la
+configuration principale pour que `verifier.yml`, sans clé, construise encore.
+Le greffon s'enregistre **dans `setup`, et faillible** : une configuration
+qu'il refuse ne doit pas coûter le lancement. Il n'est accordé qu'à la fenêtre
+principale, la seule qui ait un écran où proposer une mise à jour.
+
 **La version s'écrit à trois endroits** — `package.json`, `tauri.conf.json`,
 `Cargo.toml` — et `publier.yml` refuse de construire si le tag de la release ne
 les égale pas tous : le nom de l'installeur vient de `tauri.conf.json`, et un

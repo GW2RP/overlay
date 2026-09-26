@@ -93,6 +93,17 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/GW2RP/overlay/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEwQzAyNDNEN0E4RUVBMDkKUldRSjZvNTZQU1RBb0pVd3J0OE1VcnM0NGdQYlh4L25NclFWOUhpT3VrL2VPbFVUSU4wamxpbDgK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": [

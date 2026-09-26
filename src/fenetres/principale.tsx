@@ -4,6 +4,7 @@ import { NexusMark } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
 import { PROFESSION_LABELS, RACE_MUMBLE_LABELS } from "@/lib/domaine";
+import { formatOctets, pourcentage, useMiseAJour, type Progression } from "@/lib/mises-a-jour";
 import { connecter, deconnecter, ErreurHub } from "@/lib/nexus";
 import {
   basculerEdition,
@@ -57,6 +58,91 @@ export function FenetrePrincipale() {
           onConnexion={rafraichir}
         />
       )}
+
+      <MiseAJour />
+    </div>
+  );
+}
+
+/* --- La mise à jour --------------------------------------------------------- */
+
+/**
+ * La version installée, et la release plus récente s'il y en a une. Posée
+ * sous la session, connecté ou non : une mise à jour ne dépend pas du compte.
+ * Rien ne s'installe sans le bouton.
+ */
+function MiseAJour() {
+  const { version, etat, verifier, installer } = useMiseAJour();
+  const miseAJour =
+    etat.etat === "disponible" || etat.etat === "installation" || etat.etat === "en-panne"
+      ? etat.miseAJour
+      : null;
+
+  return (
+    <section className="mt-auto flex flex-col gap-3 border-t-2 border-rule pt-4">
+      <div className="flex items-center justify-between gap-4">
+        <p className="caption text-ink-muted">
+          {version ? `Version ${version}` : "Version"}
+          {etat.etat === "a-jour" ? " · à jour" : ""}
+        </p>
+        <Button
+          type="button"
+          variant="quiet"
+          size="sm"
+          disabled={etat.etat === "recherche" || etat.etat === "installation"}
+          onClick={() => void verifier()}
+        >
+          {etat.etat === "recherche" ? "RECHERCHE…" : "VÉRIFIER"}
+        </Button>
+      </div>
+
+      {miseAJour ? (
+        <div className="framed flex flex-col gap-3 p-5">
+          <p className="body-compact text-ink">
+            Version {miseAJour.version}
+            <span className="caption block text-ink-muted">
+              installée : {miseAJour.currentVersion}
+            </span>
+          </p>
+          {miseAJour.body ? (
+            <p className="caption max-h-40 overflow-y-auto whitespace-pre-line text-ink-body">
+              {miseAJour.body}
+            </p>
+          ) : null}
+          {etat.etat === "installation" ? (
+            <Telechargement progression={etat.progression} />
+          ) : (
+            <Button type="button" variant="outline" size="sm" onClick={() => void installer()}>
+              INSTALLER ET REDÉMARRER
+            </Button>
+          )}
+        </div>
+      ) : null}
+
+      {etat.etat === "en-panne" ? (
+        <p role="alert" className="border border-crimson-edge bg-surface-inset px-4 py-3 body-compact text-crimson-ink">
+          {etat.message}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/** Pas de barre quand la taille n'a pas été annoncée : pleine, elle dirait
+ *  « fini », vide, « bloqué ». Les octets reçus en disent plus. */
+function Telechargement({ progression }: { progression: Progression }) {
+  const pourcent = pourcentage(progression);
+  return (
+    <div className="flex flex-col gap-2">
+      {pourcent !== null ? (
+        <div className="h-1 w-full bg-surface-inset" role="progressbar" aria-valuenow={pourcent} aria-valuemin={0} aria-valuemax={100}>
+          <div className="h-full bg-gold" style={{ width: `${pourcent}%` }} />
+        </div>
+      ) : null}
+      <p className="caption text-ink-muted">
+        Téléchargement… {pourcent !== null ? `${pourcent} %` : formatOctets(progression.recus)}.
+        L'application redémarrera pour terminer.
+      </p>
     </div>
   );
 }

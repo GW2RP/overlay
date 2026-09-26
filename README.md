@@ -101,8 +101,54 @@ sinon un `GW2RP Overlay_1.0.0_x64-setup.exe`. Il se relance à la demande sur
 une release existante (« Run workflow », avec le tag) ; `--clobber` remplace
 alors les installeurs déjà attachés.
 
-L'application ne se met pas à jour d'elle-même : on télécharge le nouvel
-installeur depuis la release.
+### Mise à jour automatique
+
+L'application interroge la dernière release GitHub au démarrage puis toutes les
+six heures. Si elle annonce une version **supérieure** à celle du binaire, la
+fenêtre principale la montre, avec ses notes et un bouton qui télécharge et
+installe. Rien ne s'installe sans ce bouton. Sous Windows, l'installeur NSIS
+est lancé en mode `passive` : le greffon termine l'application juste après
+l'avoir lancé, et l'installeur la relance.
+
+Le greffon refuse toute mise à jour qu'il ne peut pas vérifier, d'où une paire
+de clés minisign. La **publique** est versionnée dans `plugins.updater.pubkey`
+de `src-tauri/tauri.conf.json`. La **privée** n'existe que dans les secrets du
+dépôt :
+
+| Secret | Contenu |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | le contenu du fichier `.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | son mot de passe, ou vide si la clé n'en a pas |
+
+Sans eux, `publier.yml` échoue franchement plutôt que de publier des
+installeurs que personne ne pourra installer. Pour refaire une paire — la
+privée perdue, les versions déjà installées ne se mettront plus à jour
+d'elles-mêmes :
+
+```bash
+npm run tauri signer generate -- -w "$HOME/.tauri/gw2rp-overlay.key"
+```
+
+La sortie donne la clé publique à recopier dans la configuration, et le
+fichier `.key` à déposer dans les secrets.
+
+`publier.yml` construit avec `--config src-tauri/updater.conf.json`, qui ajoute
+`createUpdaterArtifacts` : l'empaqueteur signe alors chaque installeur et écrit
+un `.sig` à côté. Ce réglage est tenu hors de `tauri.conf.json` pour que
+`verifier.yml`, sans clé, continue de construire. Le workflow attache ensuite
+un `latest.json` à la release, dont l'adresse d'installeur est relue **depuis
+les fichiers de la release** : GitHub remplace les espaces des noms par des
+points. L'application le lit via
+`https://github.com/GW2RP/overlay/releases/latest/download/latest.json`, qui
+ne résout que vers la dernière release **publiée** : un brouillon n'est proposé
+à personne.
+
+### Les greffons vont par deux
+
+Chaque greffon Tauri existe en crate et en paquet npm, et le CLI refuse de
+construire si leurs versions majeure et mineure diffèrent. `Cargo.toml` et
+`package.json` écrivent donc la même mineure pour chacun ; une montée de
+version se fait des deux côtés à la fois.
 
 ## Regarder sans le jeu
 

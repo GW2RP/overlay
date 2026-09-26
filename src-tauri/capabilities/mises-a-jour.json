@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "mises-a-jour",
+  "description": "La mise à jour automatique, depuis la fenêtre principale seulement : c'est la seule qui ait un écran où la proposer, et la seule qui en installe jamais une.",
+  "windows": ["principale"],
+  "permissions": ["updater:default"]
+}
