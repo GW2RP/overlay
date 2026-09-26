@@ -78,6 +78,32 @@ cargo test --manifest-path src-tauri/Cargo.toml
 Le workflow `.github/workflows/verifier.yml` rejoue ces vérifications sous
 Windows et publie les installeurs en artefact.
 
+## Publier une release
+
+`.github/workflows/publier.yml` se déclenche quand une release `v*` est
+**publiée** sur GitHub. Il n'écrit pas la release : les notes restent écrites à
+la main, et il y attache les deux installeurs, NSIS et MSI, une fois construits
+sous Windows.
+
+```bash
+# aligner les trois fichiers de version, puis
+npm version 1.1.0 --no-git-tag-version
+sed -i 's/^version = ".*"/version = "1.1.0"/' src-tauri/Cargo.toml
+sed -i 's/"version": ".*"/"version": "1.1.0"/' src-tauri/tauri.conf.json
+cargo update -w --manifest-path src-tauri/Cargo.toml
+git commit -am "Version 1.1.0" && git push
+# puis créer et publier la release v1.1.0 sur GitHub, depuis main
+```
+
+Le workflow refuse de construire si le tag ne correspond pas aux versions de
+`package.json`, `tauri.conf.json` et `Cargo.toml` : un tag `v1.1.0` publierait
+sinon un `GW2RP Overlay_1.0.0_x64-setup.exe`. Il se relance à la demande sur
+une release existante (« Run workflow », avec le tag) ; `--clobber` remplace
+alors les installeurs déjà attachés.
+
+L'application ne se met pas à jour d'elle-même : on télécharge le nouvel
+installeur depuis la release.
+
 ## Regarder sans le jeu
 
 ```bash

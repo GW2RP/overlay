@@ -178,3 +178,12 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 Le crate ne se compile entièrement que sous Windows : `ring`, tiré par le
 greffon `http`, demande la chaîne MSVC. Ailleurs, `cargo test` sur le module
 `mumble` passe, et le reste se vérifie par le workflow `verifier.yml`.
+
+## Publier
+
+**La version s'écrit à trois endroits** — `package.json`, `tauri.conf.json`,
+`Cargo.toml` — et `publier.yml` refuse de construire si le tag de la release ne
+les égale pas tous : le nom de l'installeur vient de `tauri.conf.json`, et un
+tag `v1.1.0` publierait sinon un installeur `1.0.0`. Le workflow n'écrit pas la
+release, il y attache les installeurs : les notes sont écrites à la main, et une
+release créée par le workflow doublerait celle qui vient de le déclencher.
