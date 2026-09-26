@@ -27,8 +27,9 @@ export type ReleveMeteo = {
   stepIndex: number;
 };
 
-/** Une ligne de `GET /api/lieux/proximite` : un lieu du registre, et sa
- *  distance au point demandé en pixels de continent. */
+/** Une ligne de `GET /api/lieux/proximite` : de quoi nommer un lieu, le
+ *  situer et dire s'il s'y passe quelque chose, avec sa distance au point
+ *  demandé en pixels de continent. La fiche garde le reste. */
 export type LieuProche = {
   id: string;
   slug: string;
@@ -36,7 +37,6 @@ export type LieuProche = {
   type: PlaceType;
   region: Region;
   district: string | null;
-  summary: string | null;
   coordinates: { x: number; y: number };
   upcomingEventCount: number;
   distance: number;
