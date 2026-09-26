@@ -20,6 +20,18 @@ export function Select({ className, ...props }: React.ComponentProps<"select">) 
   return <select data-slot="select" className={cn(controlClasses, className)} {...props} />;
 }
 
+/** Le curseur natif, à la couleur d'action : on ne redessine pas la glissière. */
+export function Slider({ className, ...props }: React.ComponentProps<"input">) {
+  return (
+    <input
+      type="range"
+      data-slot="slider"
+      className={cn("w-full accent-[var(--crimson)]", className)}
+      {...props}
+    />
+  );
+}
+
 export function Field({
   label,
   htmlFor,
