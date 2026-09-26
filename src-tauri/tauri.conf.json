@@ -67,9 +67,9 @@
         "title": "GW2RP — Personnage",
         "url": "index.html#/personnage",
         "width": 320,
-        "height": 110,
+        "height": 132,
         "minWidth": 240,
-        "minHeight": 80,
+        "minHeight": 100,
         "x": 40,
         "y": 550,
         "resizable": true,
@@ -95,7 +95,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "publisher": "La communauté GW2RP",
     "category": "Utility",
     "shortDescription": "L'overlay de jeu du hub GW2RP Nexus",
@@ -108,7 +111,9 @@
       "icons/icon.ico"
     ],
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" }
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
     }
   }
 }

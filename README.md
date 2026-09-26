@@ -78,6 +78,19 @@ cargo test --manifest-path src-tauri/Cargo.toml
 Le workflow `.github/workflows/verifier.yml` rejoue ces vérifications sous
 Windows et publie les installeurs en artefact.
 
+## Regarder sans le jeu
+
+```bash
+npm run apercu                          # captures dans ./captures
+APERCU_HUB=https://…vercel.app npm run apercu
+```
+
+L'outil rend chaque fenêtre dans Chromium, par Playwright, en tenant lieu de
+l'IPC de Tauri. La météo et les lieux viennent du hub, l'API du jeu décrit la
+carte ; seuls le lien Mumble — un personnage posé dans la Vallée de la reine —,
+la session et le fond qui tient lieu du jeu sont factices. `APERCU_CHROMIUM`
+désigne un Chromium déjà installé quand Playwright n'a pas téléchargé le sien.
+
 ## Où les choses vivent
 
 ```

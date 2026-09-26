@@ -158,11 +158,12 @@ export async function deconnecter(): Promise<void> {
 /** Le temps au point donné, ou `null` si la simulation n'a encore rien écrit. */
 export async function releverMeteo(x: number, y: number): Promise<ReleveMeteo | null> {
   try {
-    const { donnees } = await requete<ReleveMeteo>("/api/meteo/point", {
+    const { donnees } = await requete<ReleveMeteo | undefined>("/api/meteo/point", {
       parametres: { x: Math.round(x), y: Math.round(y) },
       authentifie: false,
     });
-    return donnees;
+    // Un corps vide n'est pas un relevé : mieux vaut le dire que planter dessus.
+    return donnees ?? null;
   } catch (erreur) {
     if (erreur instanceof ErreurHub && erreur.statut === 404) return null;
     throw erreur;

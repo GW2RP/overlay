@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "apercu": "node scripts/apercu.mjs"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.2.0",
@@ -35,6 +36,7 @@
     "eslint-plugin-react-hooks": "^7.0.0",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "playwright": "^1.63.0",
     "tailwindcss": "^4.2.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",

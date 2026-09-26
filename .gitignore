@@ -20,3 +20,6 @@ npm-debug.log*
 # Environnement local
 .env*
 !.env.example
+
+# Captures de l'outil d'aperçu
+captures

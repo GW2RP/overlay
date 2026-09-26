@@ -71,25 +71,26 @@ export function Meteo({ position }: { position: Position }) {
 
   return (
     <div className="flex h-full flex-col gap-1 px-4 py-3">
-      <p className="eyebrow text-gold-eyebrow">
-        {"MÉTÉO"} · {position.carte.name.toLocaleUpperCase("fr-FR")}
-      </p>
+      <p className="eyebrow text-gold-eyebrow">MÉTÉO</p>
       <div aria-live="polite" className="min-h-0 flex-1">
         {lecture.etat === "en-panne" ? (
           <EnPanne libelle="Le relevé n'a pas abouti." />
         ) : lecture.etat === "en-cours" ? (
           <EnCours libelle="Relevé…" />
-        ) : lecture.releve === null ? (
+        ) : !lecture.releve ? (
           <EnCours libelle="Aucun pas de simulation" />
         ) : (
-          <Releve releve={lecture.releve} />
+          <Releve releve={lecture.releve} carte={position.carte.name} />
         )}
       </div>
     </div>
   );
 }
 
-function Releve({ releve }: { releve: ReleveMeteo }) {
+/** Le nom de la carte va avec le terrain, pas dans le surtitre : en capitales
+ *  espacées, « La Vallée de la reine » prenait deux lignes à la largeur d'un
+ *  élément. */
+function Releve({ releve, carte }: { releve: ReleveMeteo; carte: string }) {
   return (
     <>
       <p className="flex items-center gap-2 body-compact text-ink">
@@ -101,7 +102,7 @@ function Releve({ releve }: { releve: ReleveMeteo }) {
         </span>
       </p>
       <p className="caption text-ink-muted">
-        {libelle(TERRAIN_LABELS, releve.terrain)} · {releve.temperature} °C · {releve.humidite} %
+        {carte} · {libelle(TERRAIN_LABELS, releve.terrain)} · {releve.temperature} °C · {releve.humidite} %
         {" · "}
         {releve.vent} km/h · {releve.pression} hPa
       </p>
