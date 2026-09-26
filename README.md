@@ -5,8 +5,12 @@ posés par-dessus Guild Wars 2, qui suivent le personnage joué.
 
 - **Météo** — le temps qu'il fait, dans la simulation du hub, là où le
   personnage se tient.
-- **Lieux à proximité** — les lieux de jeu de rôle du registre autour de lui,
-  du plus proche au plus éloigné, avec leur direction et leurs scènes à venir.
+- **À proximité** — les lieux de jeu de rôle du registre autour de lui, du plus
+  proche au plus éloigné, avec leur direction ; les scènes annoncées alentour ;
+  les dernières rumeurs de la région. Une recherche y trouve lieux,
+  personnages, groupes et scènes de tout le hub. Un lieu s'ouvre dans sa
+  **fiche** — description, accès, tenanciers, plans et scènes — à côté de la
+  liste ; le reste s'ouvre sur le hub, dans le navigateur.
 - **Personnage** — son nom, sa race, sa profession, sa carte et sa position
   dans le repère du hub.
 
@@ -26,18 +30,24 @@ Le hub n'est affilié ni à ArenaNet, LLC ni à NCSOFT.
 
 Le jeu publie à chaque image un bloc de mémoire partagée — le protocole du
 logiciel de voix Mumble, complété d'un contexte à lui : la carte, la position du
-personnage dans le repère de cette carte, son nom, sa profession. L'application
-le lit quatre fois par seconde. Rien n'est injecté dans le jeu.
+personnage sur la carte du monde, son nom, sa profession. L'application le lit
+quatre fois par seconde. Rien n'est injecté dans le jeu.
 
-L'API publique du jeu dit quel rectangle du continent chaque carte occupe ; la
-position se projette alors en **pixels de continent**, le repère dans lequel le
-hub range ses lieux et joue sa météo. Le reste est deux lectures du hub :
-`/api/meteo/point` pour le ciel, `/api/lieux/proximite` pour les lieux.
+Cette position est déjà en **pixels de continent**, le repère dans lequel le
+hub range ses lieux et joue sa météo ; l'API publique du jeu ne sert qu'à dire
+le continent et l'échelle des distances. Le reste est des lectures publiques du
+hub : `/api/meteo/point` pour le ciel, `/api/lieux/proximite`,
+`/api/evenements/proximite` et `/api/rumeurs` pour les alentours,
+`/api/recherche` pour la recherche, `/api/lieux/<slug>` et ses `/evenements`
+pour la fiche.
 
-Chaque élément est une fenêtre transparente, toujours au-dessus du jeu. Hors
-édition, **les clics la traversent** et atteignent le jeu. En édition —
-`Ctrl+Maj+O`, ou le bouton de la fenêtre principale — elle se déplace, se
-redimensionne et se ferme, et reprend sa place au prochain démarrage.
+Chaque élément est une fenêtre transparente, toujours au-dessus du jeu. Chacun
+porte un **cadenas** : fermé, les clics le traversent et atteignent le jeu —
+sauf sur le cadenas lui-même, pour le rouvrir ; ouvert, il prend la souris. La
+météo et le personnage naissent fermés, il n'y a rien à y cliquer ;
+« À proximité » naît ouvert. En édition — `Ctrl+Maj+O`, ou le bouton de la
+fenêtre principale — chaque fenêtre se déplace, se redimensionne et se ferme,
+et reprend sa place au prochain démarrage.
 
 L'opacité du fond des éléments se règle depuis la fenêtre principale ; le
 texte reste entier quelle que soit la valeur.
@@ -161,8 +171,8 @@ APERCU_HUB=https://…vercel.app npm run apercu
 ```
 
 L'outil rend chaque fenêtre dans Chromium, par Playwright, en tenant lieu de
-l'IPC de Tauri. La météo et les lieux viennent du hub, l'API du jeu décrit la
-carte ; seuls le lien Mumble — un personnage posé dans la Vallée de la reine —,
+l'IPC de Tauri. La météo, les alentours, la recherche et la fiche viennent du
+hub, l'API du jeu décrit la carte ; seuls le lien Mumble — un personnage posé dans la Vallée de la reine —,
 la session et le fond qui tient lieu du jeu sont factices. `APERCU_CHROMIUM`
 désigne un Chromium déjà installé quand Playwright n'a pas téléchargé le sien.
 
@@ -171,22 +181,25 @@ désigne un Chromium déjà installé quand Playwright n'a pas téléchargé le 
 ```
 src/
   main.tsx              l'entrée : l'ancre de la fenêtre dit laquelle elle est
-  fenetres/             la fenêtre principale, et le cadre commun des overlays
-  elements/             météo, lieux à proximité, personnage
+  fenetres/             la principale, le cadre commun des éléments, la fiche d'un lieu
+  elements/             météo, à proximité, personnage
+  components/           le cadenas, le markdown du hub, les glyphes, les boutons
   lib/
     mumble.ts           le lien du jeu, tel que Rust l'émet
     gw2.ts              les cartes du jeu, décrites par son API et rangées
-    carte.ts            la projection en pixels de continent, distances, directions
+    carte.ts            la position en pixels de continent, distances, directions
     position.ts         où le personnage se tient, pour le hub
-    nexus.ts            le client du hub : session par jeton, météo, lieux
-    overlays.ts         les éléments, et ce que Rust en tient
+    nexus.ts            le client du hub : session par jeton, météo, alentours, fiche, recherche
+    overlays.ts         les éléments, la fiche, et ce que Rust en tient
+    cadre.ts            une fenêtre qui reprend sa place
+    liens.ts            ouvrir le hub dans le navigateur
     reglages.ts         le magasin persistant
     domaine.ts          le vocabulaire du hub et du jeu
   styles/tokens.css     les jetons du design system — le même fichier que le hub
 src-tauri/
   src/mumble.rs         la mémoire partagée du jeu, et son décodage
-  src/overlays.rs       montrer, cacher, mode d'édition
+  src/overlays.rs       montrer, cacher, mode d'édition, cadenas, fiche
   src/plateau.rs        l'icône de la zone de notification
-  tauri.conf.json       les fenêtres, une par élément
+  tauri.conf.json       les fenêtres, une par élément, plus la fiche
   capabilities/         ce que les fenêtres ont le droit de faire
 ```

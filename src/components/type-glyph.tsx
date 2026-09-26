@@ -1,4 +1,5 @@
 import {
+  AdventureIcon,
   BannerIcon,
   CloudIcon,
   EstateIcon,
@@ -6,6 +7,7 @@ import {
   MistIcon,
   RainIcon,
   RuinIcon,
+  ScalesIcon,
   SnowIcon,
   StormIcon,
   SunIcon,
@@ -14,13 +16,21 @@ import {
   TradeIcon,
   WindIcon,
 } from "@/components/icons";
-import type { Phenomene, PlaceType, WeatherCondition } from "@/lib/domaine";
+import type { EventType, Phenomene, PlaceType, WeatherCondition } from "@/lib/domaine";
 
 /** La correspondance type → glyphe, la même que celle du hub. Une valeur que
  *  cette version ne connaît pas prend le glyphe de repli plutôt que rien. */
 
 type GlyphProps = { size?: number; className?: string };
 type Glyph = (props: GlyphProps) => React.ReactElement;
+
+const EVENT_GLYPHS: Record<EventType, Glyph> = {
+  taverne: TavernIcon,
+  aventure: AdventureIcon,
+  commerce: TradeIcon,
+  ceremonie: BannerIcon,
+  intrigue: ScalesIcon,
+};
 
 const PLACE_GLYPHS: Record<PlaceType, Glyph> = {
   taverne: TavernIcon,
@@ -49,6 +59,11 @@ const PHENOMENE_GLYPHS: Record<Phenomene, Glyph> = {
   vent: WindIcon,
   chaleur: SunIcon,
 };
+
+export function EventGlyph({ type, ...props }: GlyphProps & { type: string }) {
+  const Component = EVENT_GLYPHS[type as EventType] ?? TavernIcon;
+  return <Component {...props} />;
+}
 
 export function PlaceGlyph({ type, ...props }: GlyphProps & { type: string }) {
   const Component = PLACE_GLYPHS[type as PlaceType] ?? TavernIcon;

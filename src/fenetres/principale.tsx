@@ -249,9 +249,14 @@ function TableauDeBord({
 
   // Les éléments laissés ouverts à la fermeture précédente reviennent : c'est
   // la fenêtre principale qui les rouvre, une fois la session confirmée.
+  // Seules les étiquettes que cette version connaît se rouvrent : un réglage
+  // écrit par une version d'avant peut nommer une fenêtre qui n'existe plus.
   useEffect(() => {
+    const connus = new Set<string>(ELEMENTS.map((element) => element.label));
     void lireElementsOuverts()
-      .then((labels) => Promise.all(labels.map((label) => montrerOverlay(label))))
+      .then((labels) =>
+        Promise.all(labels.filter((label) => connus.has(label)).map((label) => montrerOverlay(label))),
+      )
       .catch((cause) => console.error("les éléments ne se rouvrent pas", cause));
   }, []);
 

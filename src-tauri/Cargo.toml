@@ -1,6 +1,6 @@
 [package]
 name = "gw2rp-overlay"
-version = "1.0.1"
+version = "1.1.0"
 description = "L'overlay de jeu du hub GW2RP Nexus : météo et lieux de RP à l'emplacement du personnage."
 authors = ["La communauté GW2RP"]
 edition = "2021"
@@ -30,6 +30,8 @@ tauri-plugin-store = "2.4"
 tauri-plugin-global-shortcut = "2.3"
 # La mise à jour automatique, depuis les releases GitHub du dépôt.
 tauri-plugin-updater = "2.12"
+# Les liens vers le hub s'ouvrent dans le navigateur, jamais dans la vue web.
+tauri-plugin-opener = "2.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

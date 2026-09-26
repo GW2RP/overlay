@@ -7,10 +7,11 @@
  * greffons `http` et `store`, les fenêtres) reçoivent ici une réponse écrite
  * dans ce fichier. Il sert à regarder l'interface, et à rien d'autre.
  *
- * **Ce qui est vrai** : la météo et les lieux viennent du hub, l'API du jeu
- * décrit la carte. **Ce qui est factice** : le lien Mumble — un personnage
- * posé dans la Vallée de la reine —, la session, et le fond sombre qui tient
- * lieu du jeu derrière les fenêtres transparentes.
+ * **Ce qui est vrai** : la météo, les lieux, les scènes, les rumeurs et la
+ * recherche viennent du hub, l'API du jeu décrit la carte. **Ce qui est
+ * factice** : le lien Mumble — un personnage posé dans la Vallée de la reine —,
+ * la session, et le fond sombre qui tient lieu du jeu derrière les fenêtres
+ * transparentes.
  *
  *   APERCU_HUB=https://…vercel.app node scripts/apercu.mjs [dossier de sortie]
  */
@@ -34,10 +35,14 @@ const POINT = { x: 43_200, y: 29_600 };
 
 /** Les fenêtres, telles que `tauri.conf.json` les déclare. */
 const FENETRES = [
-  { label: "overlay-meteo", ancre: "#/meteo", largeur: 320, hauteur: 150 },
-  { label: "overlay-lieux", ancre: "#/lieux", largeur: 340, hauteur: 320 },
-  { label: "overlay-personnage", ancre: "#/personnage", largeur: 320, hauteur: 132 },
+  { label: "overlay-meteo", ancre: "#/meteo", largeur: 320, hauteur: 150, verrouille: true },
+  { label: "overlay-proximite", ancre: "#/proximite", largeur: 340, hauteur: 600, verrouille: false },
+  { label: "overlay-personnage", ancre: "#/personnage", largeur: 320, hauteur: 132, verrouille: true },
 ];
+/** La fiche d'un lieu, telle que `tauri.conf.json` la déclare. */
+const FICHE = { label: "overlay-fiche", ancre: "#/fiche", largeur: 420, hauteur: 640 };
+/** Ce qu'on tape dans la recherche : assez court pour ramener plusieurs familles. */
+const RECHERCHE = "ka";
 
 async function lireJson(url) {
   const reponse = await fetch(url, { headers: { Accept: "application/json" } });
@@ -47,8 +52,6 @@ async function lireJson(url) {
 
 /** Le lien Mumble tel que Rust l'émettrait pour un personnage posé au point. */
 function lienMumble(carte) {
-  const [[mx1, my1], [mx2, my2]] = carte.map_rect;
-  const [[cx1, cy1], [cx2, cy2]] = carte.continent_rect;
   return {
     tick: 48_213,
     actif: true,
@@ -77,9 +80,9 @@ function lienMumble(carte) {
       champ_de_texte_actif: false,
       en_combat: false,
     },
-    // L'inverse de `projeter` : du point de continent au repère de la carte.
-    player_x: mx1 + ((POINT.x - cx1) / (cx2 - cx1)) * (mx2 - mx1),
-    player_y: my2 - ((POINT.y - cy1) / (cy2 - cy1)) * (my2 - my1),
+    // Le jeu écrit la position en pixels de continent : le point, tel quel.
+    player_x: POINT.x,
+    player_y: POINT.y,
     map_center_x: 0,
     map_center_y: 0,
     map_scale: 1,
@@ -92,7 +95,7 @@ function lienMumble(carte) {
  * sérialisé vers le navigateur ; `contexte` porte les réponses préparées.
  */
 function installerTauri(contexte) {
-  const { label, edition, lien, reponses, session } = contexte;
+  const { label, edition, lien, reponses, session, verrouille, fiche } = contexte;
   const rappels = new Map();
   const magasin = new Map(Object.entries(contexte.magasin));
   let prochainRid = 1;
@@ -101,10 +104,13 @@ function installerTauri(contexte) {
   const encoder = (objet) => Array.from(new TextEncoder().encode(JSON.stringify(objet)));
 
   function reponseHttp(url) {
-    const chemin = url.replace(/^https?:\/\/[^/]+/, "");
-    for (const [prefixe, charge] of Object.entries(reponses)) {
-      if (chemin.startsWith(prefixe)) return { statut: 200, charge };
-    }
+    const chemin = url.replace(/^https?:\/\/[^/]+/, "").replace(/\?.*$/, "");
+    // Le préfixe le plus long l'emporte : `/api/lieux/<slug>/evenements` avant
+    // `/api/lieux/<slug>`, lui-même avant `/api/lieux`.
+    const prefixe = Object.keys(reponses)
+      .filter((candidat) => chemin === candidat || chemin.startsWith(`${candidat}/`) || chemin.startsWith(candidat))
+      .sort((a, b) => b.length - a.length)[0];
+    if (prefixe) return { statut: 200, charge: reponses[prefixe] };
     if (chemin.startsWith("/api/auth/get-session")) return { statut: 200, charge: session };
     return { statut: 404, charge: { erreur: `Aucune réponse préparée pour ${chemin}` } };
   }
@@ -122,10 +128,18 @@ function installerTauri(contexte) {
         return edition;
       case "overlay_visible":
         return true;
+      case "overlay_verrouille":
+        return verrouille ?? false;
+      case "fiche_courante":
+        return fiche ?? null;
       case "montrer_overlay":
       case "cacher_overlay":
       case "regler_edition":
       case "basculer_edition":
+      case "verrouiller_overlay":
+      case "deverrouiller_overlay":
+      case "ouvrir_fiche":
+      case "plugin:opener|open_url":
         return null;
       case "plugin:store|load":
         return prochainRid++;
@@ -218,13 +232,26 @@ async function main() {
   await mkdir(SORTIE, { recursive: true });
 
   console.log(`Lecture du hub ${HUB} et de l'API du jeu…`);
-  const [carte, meteo, lieux] = await Promise.all([
+  const ou = `x=${POINT.x}&y=${POINT.y}`;
+  const [carte, meteo, lieux, evenements, rumeurs, recherche] = await Promise.all([
     lireJson(`https://api.guildwars2.com/v2/maps/${CARTE_ID}?lang=fr`),
-    lireJson(`${HUB}/api/meteo/point?x=${POINT.x}&y=${POINT.y}`),
-    lireJson(`${HUB}/api/lieux/proximite?x=${POINT.x}&y=${POINT.y}&rayon=2500&limite=8`),
+    lireJson(`${HUB}/api/meteo/point?${ou}`),
+    lireJson(`${HUB}/api/lieux/proximite?${ou}&rayon=2500&limite=6`),
+    lireJson(`${HUB}/api/evenements/proximite?${ou}&rayon=2500&limite=6`),
+    lireJson(`${HUB}/api/rumeurs?${ou}&limite=3`),
+    lireJson(`${HUB}/api/recherche?q=${encodeURIComponent(RECHERCHE)}&limite=5`),
+  ]);
+  // La fiche montre le lieu le plus proche ; sans lieu à proximité, la capture
+  // de la fiche dit « Lieu introuvable », et c'est la vérité.
+  const slug = lieux.lieux[0]?.slug ?? "aucun";
+  const [lieu, scenesDuLieu] = await Promise.all([
+    lireJson(`${HUB}/api/lieux/${encodeURIComponent(slug)}`).catch(() => null),
+    lireJson(`${HUB}/api/lieux/${encodeURIComponent(slug)}/evenements?limite=12`).catch(() => ({
+      evenements: [],
+    })),
   ]);
   console.log(
-    `  ${carte.name} · ${meteo.condition} · ${lieux.lieux.length} lieu(x) à moins de ${lieux.rayon} px`,
+    `  ${carte.name} · ${meteo.condition} · ${lieux.lieux.length} lieu(x), ${evenements.evenements.length} scène(s), ${rumeurs.rumeurs.length} rumeur(s) à moins de ${lieux.rayon} px · fiche : ${lieu?.name ?? slug}`,
   );
 
   const lien = lienMumble(carte);
@@ -233,6 +260,11 @@ async function main() {
     reponses: {
       "/api/meteo/point": meteo,
       "/api/lieux/proximite": lieux,
+      "/api/evenements/proximite": evenements,
+      "/api/rumeurs": rumeurs,
+      "/api/recherche": recherche,
+      [`/api/lieux/${slug}`]: lieu ?? { erreur: "Lieu introuvable" },
+      [`/api/lieux/${slug}/evenements`]: scenesDuLieu,
     },
     magasin: {
       urlHub: HUB,
@@ -250,7 +282,7 @@ async function main() {
   const navigateur = await chromium.launch({ executablePath: process.env.APERCU_CHROMIUM });
 
   try {
-    const capturer = async ({ nom, ancre, largeur, hauteur, contexte, fond }) => {
+    const capturer = async ({ nom, ancre, largeur, hauteur, contexte, fond, saisie }) => {
       const page = await navigateur.newPage({
         viewport: { width: largeur, height: hauteur },
         deviceScaleFactor: 2,
@@ -266,11 +298,19 @@ async function main() {
       await page.goto(`http://localhost:${PORT}/index.html${ancre}`);
       // Le fond tient lieu du jeu : la fenêtre est transparente.
       if (fond) await page.addStyleTag({ content: `body { background: ${fond} !important; }` });
-      await page.waitForFunction(
-        () => !document.body.textContent?.match(/Relevé…|Recherche…|Session…|en cours de lecture/),
-        undefined,
-        { timeout: 15_000 },
-      );
+      const attendre = () =>
+        page.waitForFunction(
+          () => !document.body.textContent?.match(/Relevé…|Recherche…|Lecture…|Session…|en cours de lecture/),
+          undefined,
+          { timeout: 15_000 },
+        );
+      await attendre();
+      // Une recherche se tape dans le champ, comme la personne le ferait.
+      if (saisie) {
+        await page.fill("input[type=search]", saisie);
+        await page.waitForTimeout(500);
+        await attendre();
+      }
       await page.waitForTimeout(400);
       const fichier = path.join(SORTIE, `${nom}.png`);
       // La fenêtre principale défile ; les éléments, non.
@@ -288,9 +328,56 @@ async function main() {
           largeur: fenetre.largeur,
           hauteur: fenetre.hauteur + (edition ? 44 : 0),
           fond: FOND_JEU,
-          contexte: { ...contexteCommun, label: fenetre.label, edition, magasin: { ...contexteCommun.magasin, jeton: "apercu" }, session: sessionFactice },
+          contexte: {
+            ...contexteCommun,
+            label: fenetre.label,
+            edition,
+            verrouille: fenetre.verrouille,
+            magasin: { ...contexteCommun.magasin, jeton: "apercu" },
+            session: sessionFactice,
+          },
         });
       }
+    }
+
+    // La recherche, remplie : lieux, personnages, groupes et scènes.
+    await capturer({
+      nom: "overlay-proximite-recherche",
+      ancre: "#/proximite",
+      largeur: 340,
+      hauteur: 600,
+      fond: FOND_JEU,
+      saisie: RECHERCHE,
+      contexte: {
+        ...contexteCommun,
+        label: "overlay-proximite",
+        edition: false,
+        verrouille: false,
+        magasin: { ...contexteCommun.magasin, jeton: "apercu" },
+        session: sessionFactice,
+      },
+    });
+
+    // La fiche du lieu le plus proche, et la fenêtre avant qu'on ait choisi un lieu.
+    for (const [nom, ficheOuverte] of [
+      ["overlay-fiche", slug],
+      ["overlay-fiche-vide", null],
+    ]) {
+      await capturer({
+        nom,
+        ancre: FICHE.ancre,
+        largeur: FICHE.largeur,
+        hauteur: FICHE.hauteur,
+        fond: FOND_JEU,
+        contexte: {
+          ...contexteCommun,
+          label: FICHE.label,
+          edition: false,
+          fiche: ficheOuverte,
+          magasin: { ...contexteCommun.magasin, jeton: "apercu" },
+          session: sessionFactice,
+        },
+      });
     }
 
     // Le fond à 60 % : ce que le réglage d'affichage produit.

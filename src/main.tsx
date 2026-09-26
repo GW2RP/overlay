@@ -10,20 +10,29 @@ import "@fontsource/eb-garamond/500.css";
 import "@fontsource/eb-garamond/600.css";
 import "@/styles/globals.css";
 
+import { FenetreFiche } from "@/fenetres/fiche";
 import { FenetreOverlay } from "@/fenetres/overlay";
 import { FenetrePrincipale } from "@/fenetres/principale";
-import { elementParAncre } from "@/lib/overlays";
+import { elementParAncre, FENETRE_FICHE } from "@/lib/overlays";
 
 /**
  * Toutes les fenêtres chargent la même page ; l'ancre de leur adresse dit
  * laquelle elles sont (`url` dans `tauri.conf.json`). Pas de routeur : une
  * fenêtre ne navigue jamais, elle est ce qu'elle est.
  */
-const element = elementParAncre(window.location.hash);
-document.body.dataset.fenetre = element ? "overlay" : "principale";
+const ancre = window.location.hash;
+const element = elementParAncre(ancre);
+const fiche = ancre === FENETRE_FICHE.ancre;
+document.body.dataset.fenetre = element || fiche ? "overlay" : "principale";
 
 createRoot(document.getElementById("racine") as HTMLElement).render(
   <StrictMode>
-    {element ? <FenetreOverlay element={element} /> : <FenetrePrincipale />}
+    {fiche ? (
+      <FenetreFiche />
+    ) : element ? (
+      <FenetreOverlay element={element} />
+    ) : (
+      <FenetrePrincipale />
+    )}
   </StrictMode>,
 );

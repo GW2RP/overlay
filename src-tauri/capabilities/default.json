@@ -21,6 +21,7 @@
     "core:window:allow-outer-size",
     "core:window:allow-inner-size",
     "core:window:allow-scale-factor",
+    "opener:default",
     "store:default",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",

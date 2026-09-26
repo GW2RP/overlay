@@ -46,20 +46,20 @@
 //!   52  compassWidth      u16
 //!   54  compassHeight     u16
 //!   56  compassRotation   f32
-//!   60  playerX           f32        pouces, repère de `map_rect` de l'API
+//!   60  playerX           f32        pixels de continent
 //!   64  playerY           f32
-//!   68  mapCenterX        f32
+//!   68  mapCenterX        f32        pixels de continent
 //!   72  mapCenterY        f32
 //!   76  mapScale          f32
 //!   80  processId         u32
 //!   84  mountIndex        u8
 //! ```
 //!
-//! `playerX` / `playerY` sont **dans le repère de `map_rect`** de l'API du
-//! jeu, pas en mètres comme `fAvatarPosition` : c'est ce qui permet de les
-//! projeter en pixels de continent avec `continent_rect`, et c'est le front qui
-//! s'en charge (`src/lib/carte.ts`) — la projection dépend de la carte, que
-//! l'API décrit.
+//! `playerX` / `playerY` sont **en pixels de continent** — le repère de la
+//! carte du jeu, et celui du hub —, pas en mètres comme `fAvatarPosition` :
+//! le jeu les a déjà projetés pour sa carte, et le front les lit tels quels
+//! (`src/lib/carte.ts`). Les reprojeter par `map_rect` / `continent_rect`
+//! donnerait un point crédible et faux.
 
 use serde::{Deserialize, Serialize};
 
@@ -155,7 +155,7 @@ pub struct Lien {
     pub shard_id: u32,
     pub build_id: u32,
     pub etat: EtatInterface,
-    /// La position dans le repère de `map_rect` de l'API du jeu.
+    /// La position en pixels de continent, celle de la carte du jeu.
     pub player_x: f32,
     pub player_y: f32,
     pub map_center_x: f32,

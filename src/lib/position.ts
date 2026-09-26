@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { enTyrie, projeter, unitesParPixel, type Point } from "@/lib/carte";
+import { enTyrie, positionContinent, unitesParPixel, type Point } from "@/lib/carte";
 import { useCarte, type CarteGw2 } from "@/lib/gw2";
 import { useMumble, type LienMumble } from "@/lib/mumble";
 
@@ -14,7 +14,7 @@ import { useMumble, type LienMumble } from "@/lib/mumble";
  *   sélection du personnage ;
  * - `carte-inconnue` : l'API du jeu n'a pas encore décrit cette carte ;
  * - `hors-tyrie` : le personnage est sur un autre continent (les Brumes) ;
- * - `pret` : la position est projetée en pixels de continent.
+ * - `pret` : la position se lit en pixels de continent.
  */
 export type Position =
   | { etat: "sans-jeu"; lien: LienMumble | null }
@@ -37,7 +37,7 @@ export function usePosition(): Position {
       etat: "pret",
       lien,
       carte,
-      point: projeter(lien, carte),
+      point: positionContinent(lien),
       unitesParPixel: unitesParPixel(carte),
     };
   }, [lien, carte]);

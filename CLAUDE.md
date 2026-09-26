@@ -38,17 +38,40 @@ l'étiquette et le titre. Pas de routeur : une fenêtre ne navigue jamais.
 `montrer_overlay` / `cacher_overlay` et écoute ; il ne crée pas de fenêtre et ne
 touche pas à ce qu'elle laisse passer.
 
-**Hors édition, le curseur traverse un élément** (`set_ignore_cursor_events`) :
-un clic dessus atteint le jeu en dessous, sinon un panneau posé sur l'écran
-volerait au jeu chaque clic dans sa zone. **En édition**, l'élément reprend le
-curseur : il se glisse par sa barre (`data-tauri-drag-region`), se
-redimensionne par son bord, se déplace aux flèches — d'un pas de dix pixels,
-d'un pixel avec `Maj` — et se ferme par sa croix. Le mode est **tenu par Rust**
-(`Edition`), pas par une fenêtre : il concerne toutes les fenêtres, il se
-bascule au raccourci global `Ctrl+Maj+O` qui tombe pendant que le jeu a le
-clavier, et une fenêtre encore cachée doit le connaître quand elle s'ouvre. Le
-mode s'applique **avant** de montrer une fenêtre : une fenêtre qui apparaîtrait
-un instant en prenant le curseur volerait le clic qui vient de l'ouvrir.
+**Ce qu'une fenêtre fait du curseur est tenu par Rust**, en trois régimes,
+dans cet ordre. **L'édition** concerne toutes les fenêtres : chacune prend le
+curseur, se glisse par sa barre (`data-tauri-drag-region`), se redimensionne
+par son bord, se déplace aux flèches — d'un pas de dix pixels, d'un pixel avec
+`Maj` — et se ferme par sa croix. Le mode (`Edition`) se bascule au raccourci
+global `Ctrl+Maj+O` qui tombe pendant que le jeu a le clavier, et une fenêtre
+encore cachée doit le connaître quand elle s'ouvre. **Le cadenas** est propre à
+chaque élément (`Verrous`). Fermé, l'élément est une image : le curseur le
+traverse (`set_ignore_cursor_events`) et un clic dessus atteint le jeu, sinon un
+panneau posé sur l'écran volerait au jeu chaque clic dans sa zone — sauf sur
+son **bouton de cadenas**, le seul chemin du retour. Une fenêtre qui ignore le
+curseur ne le voit plus jamais, donc c'est Rust qui suit la position du curseur
+(`suivre_les_cadenas`) et ne lui rend la souris que le temps qu'il survole la
+zone que le bouton a déclarée (`BoutonVerrou`, en pixels CSS, ramenés à l'écran
+par `outer_position` et le facteur d'échelle). Ouvert, l'élément prend le
+curseur : on y choisit un lieu, on y tape une recherche. La météo et le
+personnage **naissent fermés** (`VERROUILLEES_AU_DEPART`), sans zone : rien à y
+cliquer ; « À proximité » naît ouvert. **Sans cadenas déclaré**, la fenêtre
+prend le curseur : c'est la fiche. Le régime s'applique **avant** de montrer
+une fenêtre : une fenêtre qui apparaîtrait un instant en prenant le curseur
+volerait le clic qui vient de l'ouvrir.
+
+**La fiche d'un lieu est une fenêtre à part** (`overlay-fiche`, `#/fiche`),
+pas un élément : elle n'est pas dans `ELEMENTS`, ne se coche pas depuis la
+principale et ne se rouvre pas au démarrage. Un lieu de « À proximité » la
+demande à Rust (`ouvrir_fiche`), qui la pose à droite de l'élément si elle
+n'était pas déjà visible, la montre, et lui émet le slug (`fiche`) ; la fiche
+le relit au montage (`fiche_courante`), parce qu'elle a pu naître après l'émis.
+Un seul lieu à la fois : en choisir un autre remplace le contenu, et la fenêtre
+garde sa place. Elle a ses onglets — fiche, plans, scènes — et rien de plus :
+modifier, s'inscrire, signaler restent sur le hub, ouvert dans le navigateur
+(`ouvrirSurLeHub`, greffon `opener`, `http(s)` seulement). Personnages, groupes,
+scènes et rumeurs s'ouvrent de même : l'overlay ne montre en fenêtre que la
+fiche d'un lieu.
 
 **L'opacité se règle sur le fond, jamais sur le texte.** Le curseur de la
 fenêtre principale (`opacite`, en pourcent, borné à la lecture) change l'alpha
@@ -59,8 +82,10 @@ cherche.
 
 Une fenêtre **reprend sa place** au démarrage : son cadre s'écrit dans les
 réglages à chaque déplacement (`ecrireCadre`), en pixels physiques d'écran, et
-`CadreElement` le relit au montage. Les éléments laissés ouverts se rouvrent
-depuis la fenêtre principale une fois la session confirmée.
+`useCadrePersistant` le relit au montage. Les éléments laissés ouverts se
+rouvrent depuis la fenêtre principale une fois la session confirmée — ceux que
+cette version connaît seulement : un réglage écrit par une version d'avant peut
+nommer une fenêtre qui n'existe plus.
 
 **Fermer la fenêtre principale la range**, elle ne quitte pas : l'application
 continue derrière son icône de zone de notification (`plateau.rs`), et les
@@ -103,15 +128,19 @@ l'écran le dit.
 
 Le hub range ses lieux en **pixels de continent** — ceux du continent 1 (la
 Tyrie), à l'échelle de `continent_dims` : 81 920 × 114 688, portée par le zoom
-7. Le lien donne la position du personnage dans le repère de la **carte** où il
-se tient (`playerX` / `playerY`, en pouces du jeu, le repère de `map_rect` de
-l'API) ; l'API publique du jeu (`/v2/maps/{id}`) donne le rectangle que cette
-carte occupe sur le continent (`continent_rect`). La projection est une règle de
-trois sur chaque axe, **l'axe des ordonnées renversé** : le jeu compte vers le
-nord, le continent vers le sud. `projeter` dans `src/lib/carte.ts` fait foi.
+7. Le lien donne la position du personnage (`playerX` / `playerY`) **dans ce
+même repère** : c'est celui de la carte du jeu, et le jeu l'y projette
+lui-même. `positionContinent` dans `src/lib/carte.ts` la lit telle quelle,
+arrondie au pixel. **Ne pas la reprojeter** par `map_rect` / `continent_rect` :
+la règle de trois s'applique aux pouces du jeu, pas à des pixels déjà
+projetés, et rendait un point crédible et faux — dans la bonne carte, à
+quelques cellules de là, parfois hors de son rectangle. Mesuré au Marais de
+Lumillule : « plaine, hors région » là où le personnage nageait en mer, sous
+l'orage que la carte du hub montrait au même endroit.
 
-Ce n'est **pas** `fAvatarPosition`, qui est en mètres dans un repère à trois
-axes dont le deuxième est la hauteur : rien à en faire ici.
+Ce n'est **pas** `fAvatarPosition` non plus, qui est en mètres dans un repère à
+trois axes dont le deuxième est la hauteur : elle, il faudrait la projeter, et
+le lien donne déjà le résultat.
 
 La description d'une carte se range dans les réglages (`cartes`) : une carte ne
 change pas de rectangle, et l'API n'a pas à être rappelée à chaque lancement
@@ -143,13 +172,24 @@ pourquoi. L'adresse rangée se revalide à chaque lecture — un fichier de rég
 (`/api/meteo/point`) se relit quand le personnage change de **cellule** de
 simulation — 256 px de continent, `CELL_SIZE` comme au hub — ou toutes les cinq
 minutes ; la suivre à chaque lecture du lien ferait quatre requêtes par seconde
-pour le même ciel. Les lieux (`/api/lieux/proximite`) se relisent quand le
-personnage s'est éloigné de plus de `SEUIL_DEPLACEMENT` de son point d'ancrage ;
-entre deux appels, distances et directions se recalculent sur place depuis la
-position courante — des soustractions, pas des requêtes.
+pour le même ciel. Les alentours — lieux (`/api/lieux/proximite`), scènes
+(`/api/evenements/proximite`) et rumeurs de la région (`/api/rumeurs`), lus
+ensemble — se relisent quand le personnage s'est éloigné de plus de
+`SEUIL_DEPLACEMENT` de son point d'ancrage ; entre deux appels, distances et
+directions se recalculent sur place depuis la position courante — des
+soustractions, pas des requêtes. Une recherche (`/api/recherche`) part après
+un temps d'arrêt de la frappe, à partir de deux caractères, et remplace les
+alentours tant que le champ n'est pas vide.
+
+**Toutes ces routes sont publiques** : l'overlay ne montre que ce que le hub
+montre à qui n'est pas connecté. Le jeton ne sert qu'à la session — savoir qui
+est là — et n'ouvre aucune scène privée.
 
 Le relevé d'avant **reste affiché** pendant que le suivant arrive : on voit ce
-qu'on quitte, pas un panneau vide.
+qu'on quitte, pas un panneau vide. Les textes longs du hub — description,
+accès — sont du **markdown**, rendus par `Markdown` avec les règles du site :
+une image ne s'affiche que si elle vient du magasin (`estImageDuMagasin`), et un
+lien s'ouvre dans le navigateur, jamais dans la fenêtre.
 
 ## Les réglages
 
@@ -169,10 +209,10 @@ pour qu'une déconnexion faite dans une fenêtre se voie dans les autres.
   libellés ; une valeur inconnue s'affiche telle quelle plutôt que de faire
   tomber l'élément — le hub a pu ajouter un type que cette version ne connaît
   pas.
-- Les hooks qui écoutent Rust (`useMumble`, `useEdition`, `useVisibilites`)
-  demandent l'état au montage **puis** écoutent : la fenêtre a pu être créée
-  cachée bien avant, et l'évènement seul la laisserait sur sa valeur par défaut
-  jusqu'au premier changement.
+- Les hooks qui écoutent Rust (`useMumble`, `useEdition`, `useVisibilites`,
+  `useVerrou`, `useFicheCourante`) demandent l'état au montage **puis**
+  écoutent : la fenêtre a pu être créée cachée bien avant, et l'évènement seul
+  la laisserait sur sa valeur par défaut jusqu'au premier changement.
 
 ## Avant de pousser
 
