@@ -50,6 +50,13 @@ clavier, et une fenêtre encore cachée doit le connaître quand elle s'ouvre. L
 mode s'applique **avant** de montrer une fenêtre : une fenêtre qui apparaîtrait
 un instant en prenant le curseur volerait le clic qui vient de l'ouvrir.
 
+**L'opacité se règle sur le fond, jamais sur le texte.** Le curseur de la
+fenêtre principale (`opacite`, en pourcent, borné à la lecture) change l'alpha
+du fond et du bord du panneau (`.panneau-overlay`) ; le texte reste entier, sans
+quoi il deviendrait illisible dès que la scène s'éclaire. En édition, le panneau
+redevient plein : on le saisit par son cadre, et un cadre à demi effacé se
+cherche.
+
 Une fenêtre **reprend sa place** au démarrage : son cadre s'écrit dans les
 réglages à chaque déplacement (`ecrireCadre`), en pixels physiques d'écran, et
 `CadreElement` le relit au montage. Les éléments laissés ouverts se rouvrent

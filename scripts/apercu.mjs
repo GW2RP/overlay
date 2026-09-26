@@ -293,6 +293,22 @@ async function main() {
       }
     }
 
+    // Le fond à 60 % : ce que le réglage d'affichage produit.
+    await capturer({
+      nom: "overlay-meteo-opacite-60",
+      ancre: "#/meteo",
+      largeur: 320,
+      hauteur: 150,
+      fond: FOND_JEU,
+      contexte: {
+        ...contexteCommun,
+        label: "overlay-meteo",
+        edition: false,
+        magasin: { ...contexteCommun.magasin, jeton: "apercu", opacite: 60 },
+        session: sessionFactice,
+      },
+    });
+
     await capturer({
       nom: "principale-connexion",
       ancre: "#/principale",

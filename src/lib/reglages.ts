@@ -1,4 +1,5 @@
 import { load, type Store } from "@tauri-apps/plugin-store";
+import { useEffect, useState } from "react";
 
 /**
  * Les réglages persistants, rangés par le greffon `store` dans le dossier de
@@ -18,6 +19,13 @@ const CLE_URL_HUB = "urlHub";
 const CLE_FENETRES = "fenetres";
 const CLE_ELEMENTS_OUVERTS = "elementsOuverts";
 const CLE_CARTES = "cartes";
+const CLE_OPACITE = "opacite";
+
+/** L'opacité du fond des éléments, en pourcent. Le plancher garde un fond qui
+ *  se voit encore : à zéro, le texte flotterait sur le jeu sans rien derrière. */
+export const OPACITE_PAR_DEFAUT = 100;
+export const OPACITE_MINIMALE = 30;
+export const OPACITE_MAXIMALE = 100;
 
 /** Le hub en production. */
 export const URL_HUB_PAR_DEFAUT = "https://www.gw2rp.eu";
@@ -110,6 +118,47 @@ export async function ecrireCarte<T>(id: number, carte: T): Promise<void> {
   await store.set(CLE_CARTES, { ...cartes, [String(id)]: carte });
 }
 
+function bornerOpacite(valeur: unknown): number {
+  const nombre = typeof valeur === "number" && Number.isFinite(valeur) ? valeur : OPACITE_PAR_DEFAUT;
+  return Math.min(Math.max(Math.round(nombre), OPACITE_MINIMALE), OPACITE_MAXIMALE);
+}
+
+/** L'opacité du fond des éléments, bornée à la lecture : un fichier de
+ *  réglages édité à la main ne rend pas les éléments invisibles. */
+export async function lireOpacite(): Promise<number> {
+  return bornerOpacite(await (await lireMagasin()).get<number>(CLE_OPACITE));
+}
+
+export async function ecrireOpacite(valeur: number): Promise<void> {
+  await (await lireMagasin()).set(CLE_OPACITE, bornerOpacite(valeur));
+}
+
+/** L'opacité en vigueur, suivie d'où qu'elle soit réglée : la fenêtre
+ *  principale la change, chaque élément la reflète aussitôt. */
+export function useOpacite(): number {
+  const [opacite, setOpacite] = useState(OPACITE_PAR_DEFAUT);
+
+  useEffect(() => {
+    let parti = false;
+    let arreter: (() => void) | null = null;
+    void lireOpacite().then((valeur) => {
+      if (!parti) setOpacite(valeur);
+    });
+    void surChangement<number>(CLE_OPACITE, (valeur) => setOpacite(bornerOpacite(valeur))).then(
+      (stop) => {
+        if (parti) stop();
+        else arreter = stop;
+      },
+    );
+    return () => {
+      parti = true;
+      arreter?.();
+    };
+  }, []);
+
+  return opacite;
+}
+
 /** Suit une clé, d'où qu'elle soit écrite. */
 export async function surChangement<T>(
   cle: string,
@@ -123,4 +172,5 @@ export const CLES = {
   urlHub: CLE_URL_HUB,
   fenetres: CLE_FENETRES,
   elementsOuverts: CLE_ELEMENTS_OUVERTS,
+  opacite: CLE_OPACITE,
 } as const;

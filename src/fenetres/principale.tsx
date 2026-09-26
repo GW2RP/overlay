@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { NexusMark } from "@/components/icons";
 import { Button } from "@/components/ui/button";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Field, Input, Select, Slider } from "@/components/ui/field";
 import { PROFESSION_LABELS, RACE_MUMBLE_LABELS } from "@/lib/domaine";
 import { formatOctets, pourcentage, useMiseAJour, type Progression } from "@/lib/mises-a-jour";
 import { connecter, deconnecter, ErreurHub } from "@/lib/nexus";
@@ -18,11 +18,15 @@ import {
 import { usePosition } from "@/lib/position";
 import {
   ecrireElementsOuverts,
+  ecrireOpacite,
   ecrireUrlHub,
   lireElementsOuverts,
   lireUrlHub,
+  OPACITE_MAXIMALE,
+  OPACITE_MINIMALE,
   URL_HUB_PAR_DEFAUT,
   URLS_HUB_AUTORISEES,
+  useOpacite,
 } from "@/lib/reglages";
 import { useSession } from "@/lib/session";
 import type { Utilisateur } from "@/lib/types";
@@ -321,6 +325,8 @@ function TableauDeBord({
         </ul>
       </section>
 
+      <Affichage />
+
       <section className="framed flex flex-col gap-3 p-5">
         <h2 className="panel-title text-ink">ÉDITION</h2>
         <div className="flex items-center justify-between gap-4">
@@ -352,6 +358,36 @@ function TableauDeBord({
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * L'opacité du fond des éléments. Le curseur écrit dans les réglages à chaque
+ * cran, et chaque élément à l'écran suit : on règle en regardant le jeu au
+ * travers, pas à l'aveugle. Le texte, lui, reste entier quelle que soit la
+ * valeur.
+ */
+function Affichage() {
+  const opacite = useOpacite();
+
+  return (
+    <section className="framed flex flex-col gap-3 p-5">
+      <h2 className="panel-title text-ink">AFFICHAGE</h2>
+      <Field label={`Opacité du fond des éléments : ${opacite} %`} htmlFor="opacite">
+        <Slider
+          id="opacite"
+          min={OPACITE_MINIMALE}
+          max={OPACITE_MAXIMALE}
+          step={5}
+          value={opacite}
+          onChange={(evenement) =>
+            void ecrireOpacite(Number(evenement.target.value)).catch((cause) =>
+              console.error("l'opacité ne s'enregistre pas", cause),
+            )
+          }
+        />
+      </Field>
+    </section>
   );
 }
 

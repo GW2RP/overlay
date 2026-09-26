@@ -1,10 +1,10 @@
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 
 import { CloseIcon } from "@/components/icons";
 import { cacherOverlay, RACCOURCI_EDITION, type Element } from "@/lib/overlays";
-import { ecrireCadre, lireCadres } from "@/lib/reglages";
+import { ecrireCadre, lireCadres, useOpacite } from "@/lib/reglages";
 import { cn } from "@/lib/utils";
 
 /**
@@ -36,6 +36,9 @@ export function CadreElement({
   children: ReactNode;
 }) {
   const minuterie = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // En édition, le panneau redevient plein : on le saisit par son cadre, et un
+  // cadre à demi effacé se cherche.
+  const opacite = useOpacite();
 
   // Reprend la place rangée, puis suit les déplacements pour la ranger.
   useEffect(() => {
@@ -110,9 +113,10 @@ export function CadreElement({
   return (
     <div
       className={cn(
-        "flex h-dvh w-dvw flex-col overflow-hidden border-2 bg-surface text-ink",
-        edition ? "border-gold" : "border-rule",
+        "panneau-overlay flex h-dvh w-dvw flex-col overflow-hidden border-2 text-ink",
+        edition && "border-gold",
       )}
+      style={{ "--opacite-panneau": edition ? 100 : opacite } as CSSProperties}
       tabIndex={edition ? 0 : -1}
       onKeyDown={surTouche}
       aria-label={element.titre}

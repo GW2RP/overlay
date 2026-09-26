@@ -39,6 +39,9 @@ Chaque élément est une fenêtre transparente, toujours au-dessus du jeu. Hors
 `Ctrl+Maj+O`, ou le bouton de la fenêtre principale — elle se déplace, se
 redimensionne et se ferme, et reprend sa place au prochain démarrage.
 
+L'opacité du fond des éléments se règle depuis la fenêtre principale ; le
+texte reste entier quelle que soit la valeur.
+
 Le jeu doit être en **fenêtré plein écran** : en plein écran exclusif, rien ne
 se dessine par-dessus.
 

@@ -109,6 +109,20 @@
 }
 
 @layer components {
+  /* Le panneau d'un élément d'overlay. Son fond et son bord suivent l'opacité
+     réglée (`--opacite-panneau`, en pourcent) ; le texte, lui, reste entier :
+     par-dessus un jeu, un texte translucide devient illisible dès que la scène
+     s'éclaire. Les teintes restent celles des jetons, seul leur alpha change. */
+  .panneau-overlay {
+    --opacite-panneau: 100;
+    background: color-mix(
+      in srgb,
+      var(--surface) calc(var(--opacite-panneau) * 1%),
+      transparent
+    );
+    border-color: color-mix(in srgb, var(--rule) calc(var(--opacite-panneau) * 1%), transparent);
+  }
+
   /* Le double cadre : signature du système. */
   .framed {
     border: var(--border-frame) solid var(--rule);
