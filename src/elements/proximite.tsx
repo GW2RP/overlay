@@ -4,13 +4,14 @@ import { BoutonVerrou } from "@/components/bouton-verrou";
 import { EnCours, EnPanne, EtatSansPosition } from "@/components/etat-element";
 import { CloseIcon, GroupIcon, RumorIcon, SearchIcon, UserIcon } from "@/components/icons";
 import { EventGlyph, PlaceGlyph } from "@/components/type-glyph";
-import { direction, distance, formatUnites, type Point } from "@/lib/carte";
+import { centreDeGrille, direction, distance, formatUnites, type Point } from "@/lib/carte";
 import { caseDeDate, formatHeure, formatJour } from "@/lib/dates";
 import { libelle, PLACE_TYPE_LABELS, raceLabel, REGION_LABELS } from "@/lib/domaine";
-import { evenementsProches, lieuxProches, rechercher, rumeursAutour } from "@/lib/nexus";
+import { useLecturePeriodique, type Lecture } from "@/lib/lecture";
+import { alentours, rechercher } from "@/lib/nexus";
 import { ouvrirFiche, useVerrou, type Element } from "@/lib/overlays";
 import type { Position } from "@/lib/position";
-import type { Evenement, EvenementProche, LieuProche, Recherche, Rumeur } from "@/lib/types";
+import type { Alentours, Evenement, Recherche, Rumeur } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ouvrirSurLeHub } from "@/lib/liens";
 
@@ -19,11 +20,14 @@ import { ouvrirSurLeHub } from "@/lib/liens";
  * s'y tiennent ou vont s'y tenir, les rumeurs de la région. Et une barre de
  * recherche à travers tout le hub.
  *
- * Les trois listes se redemandent quand le personnage s'est **assez** déplacé
- * pour qu'elles puissent changer — pas à chaque pas. Entre deux appels,
- * distances et directions se recalculent sur place depuis la position
- * courante : des soustractions, pas des requêtes. Le relevé d'avant reste
- * affiché pendant que le suivant arrive.
+ * Les trois listes viennent d'une seule lecture (`/api/alentours`), depuis une
+ * **ancre** posée au centre d'une case de grille, et se redemandent quand le
+ * personnage s'en est assez éloigné pour qu'elles puissent changer — pas à
+ * chaque pas — ou toutes les cinq minutes, fenêtre visible seulement. Deux
+ * personnages dans la même case demandent la même adresse, que le hub ressert
+ * sans la recalculer. Entre deux appels, distances et directions se
+ * recalculent sur place depuis la position courante : des soustractions, pas
+ * des requêtes. Le relevé d'avant reste affiché pendant que le suivant arrive.
  *
  * Un lieu s'ouvre dans sa fiche, une fenêtre à part ; un personnage, un groupe
  * ou une scène s'ouvrent sur le hub, dans le navigateur : l'overlay n'a pas
@@ -32,23 +36,34 @@ import { ouvrirSurLeHub } from "@/lib/liens";
 
 /** Le déplacement, en pixels de continent, au-delà duquel les listes se redemandent. */
 const SEUIL_DEPLACEMENT = 400;
-const RAFRAICHISSEMENT_MS = 2 * 60 * 1000;
+const RAFRAICHISSEMENT_MS = 5 * 60 * 1000;
+/** Ce qui compte comme « à proximité » à l'écran. */
 const RAYON = 2_500;
+/** La grille sur laquelle l'ancre se pose. Un point est toujours à moins de
+ *  362 px du centre de sa case, sous le seuil : l'ancre ne bouge qu'une fois
+ *  la case quittée, sans battement à la frontière. */
+const GRILLE_ANCRE = 512;
+/** Le rayon demandé au hub : le personnage peut être à `SEUIL_DEPLACEMENT` de
+ *  son ancre avant qu'elle bouge, donc le hub cherche d'autant plus loin, et
+ *  l'écran ne garde que ce qui est à moins de `RAYON` du personnage. */
+const RAYON_DEMANDE = RAYON + SEUIL_DEPLACEMENT;
 const LIMITE = 6;
+const RUMEURS = 3;
 /** Le délai entre la dernière frappe et la recherche. */
 const DELAI_RECHERCHE_MS = 300;
 const LONGUEUR_MINIMALE = 2;
 
-type Lecture<T> = { etat: "en-cours" } | { etat: "en-panne" } | { etat: "lu"; valeur: T };
+const lireAlentours = (ancre: Point) => alentours(ancre.x, ancre.y, RAYON_DEMANDE, LIMITE, RUMEURS);
 
-type Alentours = {
-  lieux: LieuProche[];
-  evenements: EvenementProche[];
-  region: string | null;
-  rumeurs: Rumeur[];
-};
-
-export function Proximite({ element, position }: { element: Element; position: Position }) {
+export function Proximite({
+  element,
+  position,
+  actif,
+}: {
+  element: Element;
+  position: Position;
+  actif: boolean;
+}) {
   const verrouille = useVerrou(element.label);
   const [requete, setRequete] = useState("");
 
@@ -96,7 +111,7 @@ export function Proximite({ element, position }: { element: Element; position: P
         {requete.trim().length >= LONGUEUR_MINIMALE ? (
           <Resultats requete={requete.trim()} position={position} />
         ) : (
-          <Alentours position={position} />
+          <Alentours position={position} actif={actif} />
         )}
       </div>
     </div>
@@ -105,56 +120,37 @@ export function Proximite({ element, position }: { element: Element; position: P
 
 /* --- Les alentours -------------------------------------------------------------- */
 
-function Alentours({ position }: { position: Position }) {
+function Alentours({ position, actif }: { position: Position; actif: boolean }) {
   const point = position.etat === "pret" ? position.point : null;
-  const [lecture, setLecture] = useState<Lecture<Alentours>>({ etat: "en-cours" });
 
-  // La requête part d'un point d'ancrage, et seulement quand on s'en éloigne.
-  // L'ancre se déduit du rendu précédent, pendant le rendu : c'est le schéma
-  // de React pour un état qui dépend de ce qu'il était.
+  // La requête part d'une ancre — le centre de la case de grille où l'on se
+  // tient —, et seulement quand on s'en éloigne. L'ancre se déduit du rendu
+  // précédent, pendant le rendu : c'est le schéma de React pour un état qui
+  // dépend de ce qu'il était. Sans jeu, plus d'ancre : la minuterie ne doit
+  // pas survivre au jeu.
   const [ancre, setAncre] = useState<Point | null>(null);
-  if (point && (!ancre || distance(ancre, point) > SEUIL_DEPLACEMENT)) {
-    setAncre(point);
+  if (!point) {
+    if (ancre) setAncre(null);
+  } else if (!ancre || distance(ancre, point) > SEUIL_DEPLACEMENT) {
+    setAncre(centreDeGrille(point, GRILLE_ANCRE));
   }
 
-  useEffect(() => {
-    if (!ancre) return;
-    let parti = false;
-
-    const lire = async () => {
-      try {
-        const [lieux, evenements, autour] = await Promise.all([
-          lieuxProches(ancre.x, ancre.y, RAYON, LIMITE),
-          evenementsProches(ancre.x, ancre.y, RAYON, LIMITE),
-          rumeursAutour(ancre.x, ancre.y, 3),
-        ]);
-        if (!parti) {
-          setLecture({
-            etat: "lu",
-            valeur: { lieux: lieux.lieux, evenements, region: autour.region, rumeurs: autour.rumeurs },
-          });
-        }
-      } catch {
-        if (!parti) setLecture({ etat: "en-panne" });
-      }
-    };
-
-    void lire();
-    const minuterie = setInterval(lire, RAFRAICHISSEMENT_MS);
-    return () => {
-      parti = true;
-      clearInterval(minuterie);
-    };
-  }, [ancre]);
+  const lecture = useLecturePeriodique(ancre, actif, RAFRAICHISSEMENT_MS, lireAlentours);
 
   if (position.etat !== "pret") return <EtatSansPosition position={position} />;
   if (lecture.etat === "en-panne") return <EnPanne libelle="Les alentours n'ont pas abouti." />;
   if (lecture.etat === "en-cours") return <EnCours libelle="Recherche…" />;
 
+  // Le hub a cherché autour de l'ancre, un peu plus loin que `RAYON` ; l'écran
+  // mesure depuis le personnage et ne garde que ce qui est vraiment à portée.
   const { point: ici, unitesParPixel } = position;
-  const lieux = [...lecture.valeur.lieux]
+  const lieux = lecture.valeur.lieux
     .map((lieu) => ({ ...lieu, distance: distance(ici, lieu.coordinates) }))
+    .filter((lieu) => lieu.distance <= RAYON)
     .sort((a, b) => a.distance - b.distance);
+  const evenements = lecture.valeur.evenements.filter(
+    (evenement) => evenement.coordinates && distance(ici, evenement.coordinates) <= RAYON,
+  );
 
   return (
     <div className="flex flex-col gap-3" aria-live="polite">
@@ -178,10 +174,10 @@ function Alentours({ position }: { position: Position }) {
       </Section>
 
       <Section titre="SCÈNES À VENIR">
-        {lecture.valeur.evenements.length === 0 ? (
+        {evenements.length === 0 ? (
           <Vide libelle="Aucune scène à proximité" />
         ) : (
-          lecture.valeur.evenements.map((evenement) => (
+          evenements.map((evenement) => (
             <LigneScene key={evenement.id} evenement={evenement} />
           ))
         )}

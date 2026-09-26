@@ -168,18 +168,35 @@ adresse acceptée ici et refusée là échouerait à la première requête sans 
 pourquoi. L'adresse rangée se revalide à chaque lecture — un fichier de réglages
 édité à la main ne pointe pas l'application ailleurs.
 
-**Une lecture ne se redemande que quand elle peut changer.** La météo
-(`/api/meteo/point`) se relit quand le personnage change de **cellule** de
-simulation — 256 px de continent, `CELL_SIZE` comme au hub — ou toutes les cinq
-minutes ; la suivre à chaque lecture du lien ferait quatre requêtes par seconde
-pour le même ciel. Les alentours — lieux (`/api/lieux/proximite`), scènes
-(`/api/evenements/proximite`) et rumeurs de la région (`/api/rumeurs`), lus
-ensemble — se relisent quand le personnage s'est éloigné de plus de
-`SEUIL_DEPLACEMENT` de son point d'ancrage ; entre deux appels, distances et
-directions se recalculent sur place depuis la position courante — des
-soustractions, pas des requêtes. Une recherche (`/api/recherche`) part après
-un temps d'arrêt de la frappe, à partir de deux caractères, et remplace les
-alentours tant que le champ n'est pas vide.
+**Une lecture ne part que fenêtre visible et jeu détecté.** Les fenêtres
+d'éléments naissent cachées et chargent leur page au démarrage ; sans cette
+règle, la météo et « À proximité » interrogeraient le hub dès la première
+position, ouvertes ou non. `useVisible` descend la visibilité en prop
+(`actif`), et `useLecturePeriodique` (`src/lib/lecture.ts`) porte la cadence
+pour les deux éléments : cachée, la fenêtre garde sa dernière lecture et ne
+demande rien ; remontrée dans la période, elle attend le reste ; sans jeu, le
+point disparaît et la minuterie avec lui. `lire` y est une fonction de module,
+parce qu'elle entre dans les dépendances de l'effet.
+
+**Une lecture ne se redemande que quand elle peut changer, et depuis un point
+arrondi.** La météo (`/api/meteo/point`) se relit quand le personnage change de
+**cellule** de simulation — 256 px de continent, `CELL_SIZE` comme au hub — ou
+toutes les cinq minutes ; la suivre à chaque lecture du lien ferait quatre
+requêtes par seconde pour le même ciel. Elle demande le **centre de la
+cellule** (`centreCellule`), pas le point : le relevé est le même par
+construction, et deux personnages sous le même ciel demandent la même adresse,
+que le CDN du hub ressert sans la recalculer. Les alentours — lieux, scènes et
+rumeurs de la région, en **une lecture** (`/api/alentours`) — partent d'une
+**ancre** posée au centre d'une case de `GRILLE_ANCRE` (512 px), qui ne bouge
+que quand le personnage s'en éloigne de plus de `SEUIL_DEPLACEMENT`, et se
+relisent toutes les cinq minutes. Le hub cherche jusqu'à `RAYON_DEMANDE`, le
+rayon élargi du seuil, et l'écran mesure depuis le personnage : distances et
+directions se recalculent sur place, et seul ce qui est à moins de `RAYON`
+reste — des soustractions, pas des requêtes. La région des rumeurs est celle
+de l'ancre, à 362 px au plus du personnage : le hub la juge déjà par cellule.
+Une recherche (`/api/recherche`) part après un temps d'arrêt de la frappe, à
+partir de deux caractères, et remplace les alentours tant que le champ n'est
+pas vide.
 
 **Toutes ces routes sont publiques** : l'overlay ne montre que ce que le hub
 montre à qui n'est pas connecté. Le jeton ne sert qu'à la session — savoir qui
@@ -210,7 +227,7 @@ pour qu'une déconnexion faite dans une fenêtre se voie dans les autres.
   tomber l'élément — le hub a pu ajouter un type que cette version ne connaît
   pas.
 - Les hooks qui écoutent Rust (`useMumble`, `useEdition`, `useVisibilites`,
-  `useVerrou`, `useFicheCourante`) demandent l'état au montage **puis**
+  `useVisible`, `useVerrou`, `useFicheCourante`) demandent l'état au montage **puis**
   écoutent : la fenêtre a pu être créée cachée bien avant, et l'évènement seul
   la laisserait sur sa valeur par défaut jusqu'au premier changement.
 

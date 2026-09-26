@@ -54,9 +54,21 @@ export function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/** La cellule de simulation qui contient un point : même cellule, même relevé. */
-export function cellule(point: Point): string {
-  return `${Math.floor(point.x / CELL_SIZE)}:${Math.floor(point.y / CELL_SIZE)}`;
+/** Le centre de la case d'une grille de `maille` px qui contient le point,
+ *  borné au continent. C'est lui qu'on envoie au hub, pas le point : deux
+ *  personnages dans la même case demandent alors la même adresse, que le hub
+ *  ressert sans la recalculer. */
+export function centreDeGrille(point: Point, maille: number): Point {
+  return {
+    x: Math.min(Math.floor(point.x / maille) * maille + maille / 2, CONTINENT_WIDTH - 1),
+    y: Math.min(Math.floor(point.y / maille) * maille + maille / 2, CONTINENT_HEIGHT - 1),
+  };
+}
+
+/** Le centre de la cellule de simulation qui contient un point : le relevé y
+ *  est celui de la cellule par construction, même cellule, même relevé. */
+export function centreCellule(point: Point): Point {
+  return centreDeGrille(point, CELL_SIZE);
 }
 
 /** Les huit directions, en français. */
