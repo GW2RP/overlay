@@ -122,6 +122,8 @@ function useEtatDeRust<T>(
       .catch((erreur) => console.error(`l'état « ${evenement} » ne se lit pas`, erreur));
 
     void listen<unknown>(evenement, (recu) => {
+      // Une émission peut tomber entre le démontage et l'arrêt de l'écoute.
+      if (parti) return;
       const valeur = extraire(recu.payload);
       if (valeur !== undefined) setEtat(valeur);
     })

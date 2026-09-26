@@ -228,7 +228,10 @@ function Resultats({ requete, position }: { requete: string; position: Position 
   if (lecture.etat === "en-panne") return <EnPanne libelle="La recherche n'a pas abouti." />;
   if (lecture.etat === "en-cours") return <EnCours libelle="Recherche…" />;
 
-  const { lieux, personnages, groupes, evenements } = lecture.valeur;
+  // Les résultats d'avant restent affichés pendant que les suivants arrivent ;
+  // le surlignage suit donc la requête qui les a produits, celle que le hub
+  // renvoie, et non celle qu'on est en train de taper.
+  const { q: motif, lieux, personnages, groupes, evenements } = lecture.valeur;
   const ici = position.etat === "pret" ? position : null;
   const total = lieux.total + personnages.total + groupes.total + evenements.total;
   if (total === 0) return <Vide libelle="Aucun résultat" />;
@@ -241,7 +244,7 @@ function Resultats({ requete, position }: { requete: string; position: Position 
             <Ligne key={lieu.id} onClick={() => void ouvrirFiche(lieu.slug)}>
               <PlaceGlyph type={lieu.type} size={18} className="mt-1 text-gold-ink" />
               <Corps
-                titre={<Surligne texte={lieu.name} motif={requete} />}
+                titre={<Surligne texte={lieu.name} motif={motif} />}
                 sousTitre={`${libelle(PLACE_TYPE_LABELS, lieu.type)} · ${lieu.district ?? libelle(REGION_LABELS, lieu.region)}`}
               />
               {ici && lieu.coordinates ? (
@@ -261,7 +264,7 @@ function Resultats({ requete, position }: { requete: string; position: Position 
             <Ligne key={personnage.id} onClick={() => void ouvrirSurLeHub(`/personnages/${personnage.slug}`)}>
               <UserIcon size={18} className="mt-1 text-gold-ink" />
               <Corps
-                titre={<Surligne texte={personnage.name} motif={requete} />}
+                titre={<Surligne texte={personnage.name} motif={motif} />}
                 sousTitre={[raceLabel(personnage.race, personnage.gender), personnage.title]
                   .filter(Boolean)
                   .join(" · ")}
@@ -277,7 +280,7 @@ function Resultats({ requete, position }: { requete: string; position: Position 
             <Ligne key={groupe.id} onClick={() => void ouvrirSurLeHub(`/groupes/${groupe.slug}`)}>
               <GroupIcon size={18} className="mt-1 text-gold-ink" />
               <Corps
-                titre={<Surligne texte={groupe.name} motif={requete} />}
+                titre={<Surligne texte={groupe.name} motif={motif} />}
                 sousTitre={`${groupe.memberCount} membre${groupe.memberCount > 1 ? "s" : ""}`}
               />
             </Ligne>
@@ -288,7 +291,7 @@ function Resultats({ requete, position }: { requete: string; position: Position 
       {evenements.items.length > 0 ? (
         <Section titre={`SCÈNES · ${evenements.total}`}>
           {evenements.items.map((evenement) => (
-            <LigneScene key={evenement.id} evenement={evenement} motif={requete} />
+            <LigneScene key={evenement.id} evenement={evenement} motif={motif} />
           ))}
         </Section>
       ) : null}
