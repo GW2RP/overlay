@@ -9,8 +9,8 @@ posés par-dessus Guild Wars 2, qui suivent le personnage joué.
   proche au plus éloigné, avec leur direction ; les scènes annoncées alentour ;
   les dernières rumeurs de la région. Une recherche y trouve lieux,
   personnages, groupes et scènes de tout le hub. Un lieu s'ouvre dans sa
-  **fiche** — description, accès, tenanciers, plans et scènes — à côté de la
-  liste ; le reste s'ouvre sur le hub, dans le navigateur.
+  **fiche** — description, accès, tenanciers, plans et scènes — au milieu de
+  l'écran ; le reste s'ouvre sur le hub, dans le navigateur.
 - **Personnage** — son nom, sa race, sa profession, sa carte et sa position
   dans le repère du hub.
 
