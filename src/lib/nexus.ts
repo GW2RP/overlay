@@ -180,10 +180,12 @@ export async function alentours(
   limite?: number,
   rumeurs?: number,
 ): Promise<Alentours> {
-  const { donnees } = await requete<Alentours>("/api/alentours", {
+  const { donnees, statut } = await requete<Alentours | undefined>("/api/alentours", {
     parametres: { x: Math.round(x), y: Math.round(y), rayon, limite, rumeurs },
     authentifie: false,
   });
+  // Un corps vide n'est pas une réponse : mieux vaut le dire que planter dessus.
+  if (!donnees) throw new ErreurHub(statut, "Le hub n'a rien rendu pour les alentours.");
   return donnees;
 }
 
@@ -211,9 +213,10 @@ export async function evenementsDuLieu(slug: string, limite?: number): Promise<E
 
 /** Une recherche à travers lieux, personnages, groupes et scènes. */
 export async function rechercher(q: string, limite?: number): Promise<Recherche> {
-  const { donnees } = await requete<Recherche>("/api/recherche", {
+  const { donnees, statut } = await requete<Recherche | undefined>("/api/recherche", {
     parametres: { q, limite },
     authentifie: false,
   });
+  if (!donnees) throw new ErreurHub(statut, "Le hub n'a rien rendu pour la recherche.");
   return donnees;
 }
