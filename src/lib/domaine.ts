@@ -75,6 +75,33 @@ export const TERRAIN_LABELS: Record<Terrain, string> = {
   ville: "Ville",
 };
 
+export const EVENT_TYPES = ["taverne", "aventure", "commerce", "ceremonie", "intrigue"] as const;
+export type EventType = (typeof EVENT_TYPES)[number];
+
+export const EVENT_TYPE_LABELS: Record<EventType, string> = {
+  taverne: "Taverne",
+  aventure: "Aventure",
+  commerce: "Commerce",
+  ceremonie: "Cérémonie",
+  intrigue: "Intrigue",
+};
+
+export const RACES = ["humain", "charr", "norn", "asura", "sylvari"] as const;
+export type Race = (typeof RACES)[number];
+
+/** Les races s'accordent : la ligne d'un personnage reprend son genre. */
+export const RACE_LABELS: Record<Race, { neutre: string; feminin: string; masculin: string }> = {
+  humain: { neutre: "Humain", feminin: "Humaine", masculin: "Humain" },
+  charr: { neutre: "Charr", feminin: "Charr", masculin: "Charr" },
+  norn: { neutre: "Norn", feminin: "Norn", masculin: "Norn" },
+  asura: { neutre: "Asura", feminin: "Asura", masculin: "Asura" },
+  sylvari: { neutre: "Sylvari", feminin: "Sylvari", masculin: "Sylvari" },
+};
+
+export function raceLabel(race: string, genre: "feminin" | "masculin" | "neutre" = "neutre"): string {
+  return RACE_LABELS[race as Race]?.[genre] ?? race;
+}
+
 export const PLACE_TYPES = [
   "taverne",
   "guilde",

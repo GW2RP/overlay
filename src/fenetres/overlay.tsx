@@ -1,7 +1,7 @@
 import { CadreElement } from "@/components/cadre-element";
-import { LieuxProches } from "@/elements/lieux-proches";
 import { Meteo } from "@/elements/meteo";
 import { Personnage } from "@/elements/personnage";
+import { Proximite } from "@/elements/proximite";
 import { useEdition, type Element } from "@/lib/overlays";
 import { usePosition } from "@/lib/position";
 
@@ -15,8 +15,8 @@ export function FenetreOverlay({ element }: { element: Element }) {
     <CadreElement element={element} edition={edition}>
       {element.id === "meteo" ? (
         <Meteo position={position} />
-      ) : element.id === "lieux" ? (
-        <LieuxProches position={position} />
+      ) : element.id === "proximite" ? (
+        <Proximite element={element} position={position} />
       ) : (
         <Personnage position={position} />
       )}

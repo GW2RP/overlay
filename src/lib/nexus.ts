@@ -1,7 +1,16 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 import { ecrireJeton, lireJeton, lireUrlHub } from "@/lib/reglages";
-import type { LieuxProches, ReleveMeteo, Utilisateur } from "@/lib/types";
+import type {
+  Evenement,
+  EvenementProche,
+  Lieu,
+  LieuxProches,
+  Recherche,
+  ReleveMeteo,
+  Rumeur,
+  Utilisateur,
+} from "@/lib/types";
 
 /**
  * Le client du hub.
@@ -179,6 +188,66 @@ export async function lieuxProches(
 ): Promise<LieuxProches> {
   const { donnees } = await requete<LieuxProches>("/api/lieux/proximite", {
     parametres: { x: Math.round(x), y: Math.round(y), rayon, limite },
+    authentifie: false,
+  });
+  return donnees;
+}
+
+/** La fiche d'un lieu, ou `null` s'il n'existe pas ou plus. */
+export async function lireLieu(slug: string): Promise<Lieu | null> {
+  try {
+    const { donnees } = await requete<Lieu>(`/api/lieux/${encodeURIComponent(slug)}`, {
+      authentifie: false,
+    });
+    return donnees ?? null;
+  } catch (erreur) {
+    if (erreur instanceof ErreurHub && erreur.statut === 404) return null;
+    throw erreur;
+  }
+}
+
+/** Les scènes publiques non finies d'un lieu. */
+export async function evenementsDuLieu(slug: string, limite?: number): Promise<Evenement[]> {
+  const { donnees } = await requete<{ evenements: Evenement[] }>(
+    `/api/lieux/${encodeURIComponent(slug)}/evenements`,
+    { parametres: { limite }, authentifie: false },
+  );
+  return donnees?.evenements ?? [];
+}
+
+/** Les scènes publiques non finies autour d'un point, de la plus proche à la
+ *  plus éloignée. */
+export async function evenementsProches(
+  x: number,
+  y: number,
+  rayon?: number,
+  limite?: number,
+): Promise<EvenementProche[]> {
+  const { donnees } = await requete<{ evenements: EvenementProche[] }>("/api/evenements/proximite", {
+    parametres: { x: Math.round(x), y: Math.round(y), rayon, limite },
+    authentifie: false,
+  });
+  return donnees?.evenements ?? [];
+}
+
+/** Les dernières rumeurs de la région d'un point. `region` vaut `null` hors
+ *  de toute région, et la liste est alors vide. */
+export async function rumeursAutour(
+  x: number,
+  y: number,
+  limite?: number,
+): Promise<{ region: string | null; rumeurs: Rumeur[] }> {
+  const { donnees } = await requete<{ region: string | null; rumeurs: Rumeur[] }>("/api/rumeurs", {
+    parametres: { x: Math.round(x), y: Math.round(y), limite },
+    authentifie: false,
+  });
+  return donnees ?? { region: null, rumeurs: [] };
+}
+
+/** Une recherche à travers lieux, personnages, groupes et scènes. */
+export async function rechercher(q: string, limite?: number): Promise<Recherche> {
+  const { donnees } = await requete<Recherche>("/api/recherche", {
+    parametres: { q, limite },
     authentifie: false,
   });
   return donnees;

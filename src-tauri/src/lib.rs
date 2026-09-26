@@ -1,9 +1,10 @@
 //! GW2RP Overlay — le binaire Tauri.
 //!
 //! Trois choses vivent ici et nulle part ailleurs : le lien Mumble du jeu,
-//! l'état des fenêtres d'overlay (visibilité, mode d'édition) et le raccourci
-//! global qui bascule l'édition. Le front lit, dessine et parle au hub ; il ne
-//! décide ni de ce qu'une fenêtre laisse passer, ni de ce que le jeu écrit.
+//! l'état des fenêtres d'overlay (visibilité, mode d'édition, cadenas) et le
+//! raccourci global qui bascule l'édition. Le front lit, dessine et parle au
+//! hub ; il ne décide ni de ce qu'une fenêtre laisse passer, ni de ce que le
+//! jeu écrit.
 
 mod mumble;
 mod overlays;
@@ -14,7 +15,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
 
-use overlays::{Edition, FENETRE_PRINCIPALE};
+use overlays::{Edition, FicheCourante, Verrous, Zone, FENETRE_PRINCIPALE};
 
 /// Émis à toutes les fenêtres à chaque lecture du lien, avec `Option<Lien>`.
 const EVENEMENT_MUMBLE: &str = "mumble";
@@ -57,6 +58,31 @@ fn overlay_visible(app: AppHandle, label: String) -> Result<bool, String> {
     overlays::visible(&app, &label)
 }
 
+#[tauri::command]
+fn verrouiller_overlay(app: AppHandle, label: String, zone: Option<Zone>) -> Result<(), String> {
+    overlays::verrouiller(&app, &label, zone)
+}
+
+#[tauri::command]
+fn deverrouiller_overlay(app: AppHandle, label: String) -> Result<(), String> {
+    overlays::deverrouiller(&app, &label)
+}
+
+#[tauri::command]
+fn overlay_verrouille(app: AppHandle, label: String) -> Result<bool, String> {
+    overlays::verrouille(&app, &label)
+}
+
+#[tauri::command]
+fn ouvrir_fiche(app: AppHandle, slug: String) -> Result<(), String> {
+    overlays::ouvrir_fiche(&app, &slug)
+}
+
+#[tauri::command]
+fn fiche_courante(app: AppHandle) -> Option<String> {
+    overlays::fiche_courante(&app)
+}
+
 /// Une lecture du lien à la demande, pour une fenêtre qui s'ouvre et ne veut
 /// pas attendre le prochain quart de seconde.
 #[tauri::command]
@@ -97,7 +123,12 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         // `store` range le jeton de session, l'adresse du hub et les réglages.
         .plugin(tauri_plugin_store::Builder::new().build())
+        // `opener` envoie les liens vers le hub au navigateur de la personne,
+        // jamais à la vue web d'un élément.
+        .plugin(tauri_plugin_opener::init())
         .manage(Edition::default())
+        .manage(Verrous::default())
+        .manage(FicheCourante::default())
         .invoke_handler(tauri::generate_handler![
             lire_edition,
             regler_edition,
@@ -105,6 +136,11 @@ pub fn run() {
             montrer_overlay,
             cacher_overlay,
             overlay_visible,
+            verrouiller_overlay,
+            deverrouiller_overlay,
+            overlay_verrouille,
+            ouvrir_fiche,
+            fiche_courante,
             lire_mumble,
         ])
         .on_window_event(|fenetre, evenement| {
@@ -159,9 +195,12 @@ pub fn run() {
                 eprintln!("le raccourci global n'est pas disponible : {erreur}");
             }
 
-            // Hors édition dès le départ : une fenêtre d'overlay ne prend
-            // jamais le curseur sans qu'on l'ait demandé.
+            // Les cadenas de départ, puis le régime de chaque fenêtre : hors
+            // édition, et les fenêtres d'affichage cadenassées, avant que rien
+            // ne se montre.
+            overlays::initialiser(app.handle());
             overlays::regler_edition(app.handle(), false)?;
+            overlays::suivre_les_cadenas(app.handle().clone());
 
             suivre_mumble(app.handle().clone());
             Ok(())

@@ -188,6 +188,72 @@ export function CalendarIcon(props: IconProps) {
   );
 }
 
+export function SearchIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="7.2" cy="7.2" r="4.4" />
+      <path d="M10.6 10.6 L14 14" />
+    </Icon>
+  );
+}
+
+/** Le cadenas fermé : les clics traversent la fenêtre. */
+export function LockIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="7" width="10" height="7" />
+      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+    </Icon>
+  );
+}
+
+/** Le cadenas ouvert : la fenêtre prend les clics. */
+export function UnlockIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="7" width="10" height="7" />
+      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0" />
+    </Icon>
+  );
+}
+
+/** Ce qui se dit : une bulle, et le fil de ce qu'on y raconte. */
+export function RumorIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M2.5 3.5 h11 v7 h-6.7 l-2.8 2.8 v-2.8 h-1.5 z M5.5 7 h5" />
+    </Icon>
+  );
+}
+
+/** Le cercle d'un groupe. */
+export function GroupIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="6" cy="5.5" r="2.5" />
+      <path d="M1.5 14c0-2.5 2-4.2 4.5-4.2s4.5 1.7 4.5 4.2" />
+      <path d="M11 3.4a2.5 2.5 0 0 1 0 4.8" />
+      <path d="M12 9.9c1.6.5 2.5 1.9 2.5 4.1" />
+    </Icon>
+  );
+}
+
+export function AdventureIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3 13 L11 5 M9 3 L13 7 M2.5 12.5 L3.5 13.5" />
+    </Icon>
+  );
+}
+
+export function ScalesIcon(props: IconProps) {
+  return (
+    <Icon {...props} strokeWidth={1.2}>
+      <path d="M8 2.5 v11 M4 5 h8 M3 5 l-1.5 3.5 h3 z M13 5 l1.5 3.5 h-3 z" />
+    </Icon>
+  );
+}
+
 /** La marque : le losange tyrien barré. */
 export function NexusMark({ size = 28, className }: { size?: number; className?: string }) {
   return (

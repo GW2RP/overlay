@@ -1,10 +1,11 @@
-import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
+import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 
 import { CloseIcon } from "@/components/icons";
 import { cacherOverlay, RACCOURCI_EDITION, type Element } from "@/lib/overlays";
-import { ecrireCadre, lireCadres, useOpacite } from "@/lib/reglages";
+import { useCadrePersistant } from "@/lib/cadre";
+import { useOpacite } from "@/lib/reglages";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,9 +23,6 @@ import { cn } from "@/lib/utils";
 
 /** Le pas des flèches, en pixels d'écran. */
 const PAS = 10;
-/** Le délai avant d'écrire une position : un glissé produit des dizaines
- *  d'évènements, et le magasin n'a besoin que du dernier. */
-const DELAI_ECRITURE = 300;
 
 export function CadreElement({
   element,
@@ -35,59 +33,10 @@ export function CadreElement({
   edition: boolean;
   children: ReactNode;
 }) {
-  const minuterie = useRef<ReturnType<typeof setTimeout> | null>(null);
   // En édition, le panneau redevient plein : on le saisit par son cadre, et un
   // cadre à demi effacé se cherche.
   const opacite = useOpacite();
-
-  // Reprend la place rangée, puis suit les déplacements pour la ranger.
-  useEffect(() => {
-    const fenetre = getCurrentWindow();
-    let parti = false;
-    const arrets: (() => void)[] = [];
-
-    void lireCadres()
-      .then(async (cadres) => {
-        const cadre = cadres[element.label];
-        if (!cadre || parti) return;
-        await fenetre.setPosition(new PhysicalPosition(cadre.x, cadre.y));
-        await fenetre.setSize(new PhysicalSize(cadre.largeur, cadre.hauteur));
-      })
-      .catch((erreur) => console.error("le cadre de la fenêtre ne se relit pas", erreur));
-
-    const ranger = () => {
-      if (minuterie.current) clearTimeout(minuterie.current);
-      minuterie.current = setTimeout(async () => {
-        try {
-          const [position, taille] = await Promise.all([
-            fenetre.outerPosition(),
-            fenetre.innerSize(),
-          ]);
-          await ecrireCadre(element.label, {
-            x: position.x,
-            y: position.y,
-            largeur: taille.width,
-            hauteur: taille.height,
-          });
-        } catch (erreur) {
-          console.error("le cadre de la fenêtre ne se range pas", erreur);
-        }
-      }, DELAI_ECRITURE);
-    };
-
-    void Promise.all([fenetre.onMoved(ranger), fenetre.onResized(ranger)])
-      .then((stops) => {
-        if (parti) stops.forEach((stop) => stop());
-        else arrets.push(...stops);
-      })
-      .catch((erreur) => console.error("la fenêtre ne se suit pas", erreur));
-
-    return () => {
-      parti = true;
-      arrets.forEach((stop) => stop());
-      if (minuterie.current) clearTimeout(minuterie.current);
-    };
-  }, [element.label]);
+  useCadrePersistant(element.label);
 
   async function deplacer(dx: number, dy: number) {
     const fenetre = getCurrentWindow();
