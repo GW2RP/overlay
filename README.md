@@ -78,6 +78,78 @@ cargo test --manifest-path src-tauri/Cargo.toml
 Le workflow `.github/workflows/verifier.yml` rejoue ces vérifications sous
 Windows et publie les installeurs en artefact.
 
+## Publier une release
+
+`.github/workflows/publier.yml` se déclenche quand une release `v*` est
+**publiée** sur GitHub. Il n'écrit pas la release : les notes restent écrites à
+la main, et il y attache les deux installeurs, NSIS et MSI, une fois construits
+sous Windows.
+
+```bash
+# aligner les trois fichiers de version, puis
+npm version 1.1.0 --no-git-tag-version
+sed -i 's/^version = ".*"/version = "1.1.0"/' src-tauri/Cargo.toml
+sed -i 's/"version": ".*"/"version": "1.1.0"/' src-tauri/tauri.conf.json
+cargo update -w --manifest-path src-tauri/Cargo.toml
+git commit -am "Version 1.1.0" && git push
+# puis créer et publier la release v1.1.0 sur GitHub, depuis main
+```
+
+Le workflow refuse de construire si le tag ne correspond pas aux versions de
+`package.json`, `tauri.conf.json` et `Cargo.toml` : un tag `v1.1.0` publierait
+sinon un `GW2RP Overlay_1.0.0_x64-setup.exe`. Il se relance à la demande sur
+une release existante (« Run workflow », avec le tag) ; `--clobber` remplace
+alors les installeurs déjà attachés.
+
+### Mise à jour automatique
+
+L'application interroge la dernière release GitHub au démarrage puis toutes les
+six heures. Si elle annonce une version **supérieure** à celle du binaire, la
+fenêtre principale la montre, avec ses notes et un bouton qui télécharge et
+installe. Rien ne s'installe sans ce bouton. Sous Windows, l'installeur NSIS
+est lancé en mode `passive` : le greffon termine l'application juste après
+l'avoir lancé, et l'installeur la relance.
+
+Le greffon refuse toute mise à jour qu'il ne peut pas vérifier, d'où une paire
+de clés minisign. La **publique** est versionnée dans `plugins.updater.pubkey`
+de `src-tauri/tauri.conf.json`. La **privée** n'existe que dans les secrets du
+dépôt :
+
+| Secret | Contenu |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | le contenu du fichier `.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | son mot de passe, ou vide si la clé n'en a pas |
+
+Sans eux, `publier.yml` échoue franchement plutôt que de publier des
+installeurs que personne ne pourra installer. Pour refaire une paire — la
+privée perdue, les versions déjà installées ne se mettront plus à jour
+d'elles-mêmes :
+
+```bash
+npm run tauri signer generate -- -w "$HOME/.tauri/gw2rp-overlay.key"
+```
+
+La sortie donne la clé publique à recopier dans la configuration, et le
+fichier `.key` à déposer dans les secrets.
+
+`publier.yml` construit avec `--config src-tauri/updater.conf.json`, qui ajoute
+`createUpdaterArtifacts` : l'empaqueteur signe alors chaque installeur et écrit
+un `.sig` à côté. Ce réglage est tenu hors de `tauri.conf.json` pour que
+`verifier.yml`, sans clé, continue de construire. Le workflow attache ensuite
+un `latest.json` à la release, dont l'adresse d'installeur est relue **depuis
+les fichiers de la release** : GitHub remplace les espaces des noms par des
+points. L'application le lit via
+`https://github.com/GW2RP/overlay/releases/latest/download/latest.json`, qui
+ne résout que vers la dernière release **publiée** : un brouillon n'est proposé
+à personne.
+
+### Les greffons vont par deux
+
+Chaque greffon Tauri existe en crate et en paquet npm, et le CLI refuse de
+construire si leurs versions majeure et mineure diffèrent. `Cargo.toml` et
+`package.json` écrivent donc la même mineure pour chacun ; une montée de
+version se fait des deux côtés à la fois.
+
 ## Regarder sans le jeu
 
 ```bash

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "GW2RP Overlay",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "eu.gw2rp.overlay",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -90,6 +90,17 @@
         "font-src": "'self'",
         "img-src": "'self' data:",
         "connect-src": "'self' ipc: http://ipc.localhost"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/GW2RP/overlay/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEwQzAyNDNEN0E4RUVBMDkKUldRSjZvNTZQU1RBb0pVd3J0OE1VcnM0NGdQYlh4L25NclFWOUhpT3VrL2VPbFVUSU4wamxpbDgK",
+      "windows": {
+        "installMode": "passive"
       }
     }
   },

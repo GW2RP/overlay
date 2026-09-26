@@ -168,6 +168,10 @@ function installerTauri(contexte) {
       case "plugin:http|fetch_cancel":
       case "plugin:http|fetch_cancel_body":
         return null;
+      case "plugin:app|version":
+        return "1.0.0";
+      case "plugin:updater|check":
+        return null;
       case "plugin:window|scale_factor":
         return 1;
       case "plugin:window|outer_position":
@@ -269,7 +273,8 @@ async function main() {
       );
       await page.waitForTimeout(400);
       const fichier = path.join(SORTIE, `${nom}.png`);
-      await page.screenshot({ path: fichier });
+      // La fenêtre principale défile ; les éléments, non.
+      await page.screenshot({ path: fichier, fullPage: nom.startsWith("principale") });
       await page.close();
       console.log(`  ${fichier}`);
     };
