@@ -169,6 +169,20 @@ export function useVerrou(label: string): boolean {
   );
 }
 
+/** Cette fenêtre est-elle à l'écran. Faux tant que Rust n'a pas répondu : une
+ *  fenêtre naît cachée, et rien ne doit partir vers le hub avant qu'on la voie. */
+export function useVisible(label: string): boolean {
+  return useEtatDeRust(
+    () => overlayVisible(label),
+    EVENEMENT_VISIBILITE,
+    (charge) => {
+      const etat = charge as { label?: string; visible?: boolean } | null;
+      return etat?.label === label && typeof etat.visible === "boolean" ? etat.visible : undefined;
+    },
+    false,
+  );
+}
+
 /** Le lieu que la fiche montre, par son slug. */
 export function useFicheCourante(): string | null {
   return useEtatDeRust(

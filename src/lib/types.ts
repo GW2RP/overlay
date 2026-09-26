@@ -50,11 +50,16 @@ export type LieuProche = {
   distance: number;
 };
 
-export type LieuxProches = {
+/** `GET /api/alentours` : tout ce qu'il y a autour d'un point, en une lecture.
+ *  `region` vaut `null` hors de toute région, et les rumeurs sont alors vides. */
+export type Alentours = {
   x: number;
   y: number;
   rayon: number;
   lieux: LieuProche[];
+  evenements: EvenementProche[];
+  region: Region | null;
+  rumeurs: Rumeur[];
 };
 
 /** Un lieu tel que le registre le résume — une ligne de recherche. */

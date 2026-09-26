@@ -36,10 +36,9 @@ quatre fois par seconde. Rien n'est injecté dans le jeu.
 Cette position est déjà en **pixels de continent**, le repère dans lequel le
 hub range ses lieux et joue sa météo ; l'API publique du jeu ne sert qu'à dire
 le continent et l'échelle des distances. Le reste est des lectures publiques du
-hub : `/api/meteo/point` pour le ciel, `/api/lieux/proximite`,
-`/api/evenements/proximite` et `/api/rumeurs` pour les alentours,
-`/api/recherche` pour la recherche, `/api/lieux/<slug>` et ses `/evenements`
-pour la fiche.
+hub : `/api/meteo/point` pour le ciel, `/api/alentours` pour les lieux, scènes
+et rumeurs autour du personnage, `/api/recherche` pour la recherche,
+`/api/lieux/<slug>` et ses `/evenements` pour la fiche.
 
 Chaque élément est une fenêtre transparente, toujours au-dessus du jeu. Chacun
 porte un **cadenas** : fermé, les clics le traversent et atteignent le jeu —
@@ -192,6 +191,7 @@ src/
     nexus.ts            le client du hub : session par jeton, météo, alentours, fiche, recherche
     overlays.ts         les éléments, la fiche, et ce que Rust en tient
     cadre.ts            une fenêtre qui reprend sa place
+    lecture.ts          une lecture du hub cadencée, fenêtre visible seulement
     liens.ts            ouvrir le hub dans le navigateur
     reglages.ts         le magasin persistant
     domaine.ts          le vocabulaire du hub et du jeu

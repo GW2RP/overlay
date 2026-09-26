@@ -1,16 +1,7 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 import { ecrireJeton, lireJeton, lireUrlHub } from "@/lib/reglages";
-import type {
-  Evenement,
-  EvenementProche,
-  Lieu,
-  LieuxProches,
-  Recherche,
-  ReleveMeteo,
-  Rumeur,
-  Utilisateur,
-} from "@/lib/types";
+import type { Alentours, Evenement, Lieu, Recherche, ReleveMeteo, Utilisateur } from "@/lib/types";
 
 /**
  * Le client du hub.
@@ -179,15 +170,18 @@ export async function releverMeteo(x: number, y: number): Promise<ReleveMeteo | 
   }
 }
 
-/** Les lieux du registre autour d'un point, du plus proche au plus éloigné. */
-export async function lieuxProches(
+/** Tout ce qu'il y a autour d'un point, en une lecture : les lieux et les
+ *  scènes à moins de `rayon`, la région et ses `rumeurs` dernières rumeurs.
+ *  `region` vaut `null` hors de toute région, et les rumeurs sont alors vides. */
+export async function alentours(
   x: number,
   y: number,
   rayon?: number,
   limite?: number,
-): Promise<LieuxProches> {
-  const { donnees } = await requete<LieuxProches>("/api/lieux/proximite", {
-    parametres: { x: Math.round(x), y: Math.round(y), rayon, limite },
+  rumeurs?: number,
+): Promise<Alentours> {
+  const { donnees } = await requete<Alentours>("/api/alentours", {
+    parametres: { x: Math.round(x), y: Math.round(y), rayon, limite, rumeurs },
     authentifie: false,
   });
   return donnees;
@@ -213,35 +207,6 @@ export async function evenementsDuLieu(slug: string, limite?: number): Promise<E
     { parametres: { limite }, authentifie: false },
   );
   return donnees?.evenements ?? [];
-}
-
-/** Les scènes publiques non finies autour d'un point, de la plus proche à la
- *  plus éloignée. */
-export async function evenementsProches(
-  x: number,
-  y: number,
-  rayon?: number,
-  limite?: number,
-): Promise<EvenementProche[]> {
-  const { donnees } = await requete<{ evenements: EvenementProche[] }>("/api/evenements/proximite", {
-    parametres: { x: Math.round(x), y: Math.round(y), rayon, limite },
-    authentifie: false,
-  });
-  return donnees?.evenements ?? [];
-}
-
-/** Les dernières rumeurs de la région d'un point. `region` vaut `null` hors
- *  de toute région, et la liste est alors vide. */
-export async function rumeursAutour(
-  x: number,
-  y: number,
-  limite?: number,
-): Promise<{ region: string | null; rumeurs: Rumeur[] }> {
-  const { donnees } = await requete<{ region: string | null; rumeurs: Rumeur[] }>("/api/rumeurs", {
-    parametres: { x: Math.round(x), y: Math.round(y), limite },
-    authentifie: false,
-  });
-  return donnees ?? { region: null, rumeurs: [] };
 }
 
 /** Une recherche à travers lieux, personnages, groupes et scènes. */

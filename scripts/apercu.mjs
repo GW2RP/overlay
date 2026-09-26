@@ -7,8 +7,9 @@
  * greffons `http` et `store`, les fenêtres) reçoivent ici une réponse écrite
  * dans ce fichier. Il sert à regarder l'interface, et à rien d'autre.
  *
- * **Ce qui est vrai** : la météo, les lieux, les scènes, les rumeurs et la
- * recherche viennent du hub, l'API du jeu décrit la carte. **Ce qui est
+ * **Ce qui est vrai** : la météo, les alentours et la recherche viennent du
+ * hub, l'API du jeu décrit la carte. `overlay_visible` répond vrai : les
+ * éléments n'interrogent le hub que fenêtre visible. **Ce qui est
  * factice** : le lien Mumble — un personnage posé dans la Vallée de la reine —,
  * la session, et le fond sombre qui tient lieu du jeu derrière les fenêtres
  * transparentes.
@@ -233,17 +234,17 @@ async function main() {
 
   console.log(`Lecture du hub ${HUB} et de l'API du jeu…`);
   const ou = `x=${POINT.x}&y=${POINT.y}`;
-  const [carte, meteo, lieux, evenements, rumeurs, recherche] = await Promise.all([
+  // Les mêmes adresses que l'application : le relevé au centre de la cellule,
+  // les alentours depuis l'ancre, un peu plus loin que le rayon affiché.
+  const [carte, meteo, alentours, recherche] = await Promise.all([
     lireJson(`https://api.guildwars2.com/v2/maps/${CARTE_ID}?lang=fr`),
     lireJson(`${HUB}/api/meteo/point?${ou}`),
-    lireJson(`${HUB}/api/lieux/proximite?${ou}&rayon=2500&limite=6`),
-    lireJson(`${HUB}/api/evenements/proximite?${ou}&rayon=2500&limite=6`),
-    lireJson(`${HUB}/api/rumeurs?${ou}&limite=3`),
+    lireJson(`${HUB}/api/alentours?${ou}&rayon=2900&limite=6&rumeurs=3`),
     lireJson(`${HUB}/api/recherche?q=${encodeURIComponent(RECHERCHE)}&limite=5`),
   ]);
   // La fiche montre le lieu le plus proche ; sans lieu à proximité, la capture
   // de la fiche dit « Lieu introuvable », et c'est la vérité.
-  const slug = lieux.lieux[0]?.slug ?? "aucun";
+  const slug = alentours.lieux[0]?.slug ?? "aucun";
   const [lieu, scenesDuLieu] = await Promise.all([
     lireJson(`${HUB}/api/lieux/${encodeURIComponent(slug)}`).catch(() => null),
     lireJson(`${HUB}/api/lieux/${encodeURIComponent(slug)}/evenements?limite=12`).catch(() => ({
@@ -251,7 +252,7 @@ async function main() {
     })),
   ]);
   console.log(
-    `  ${carte.name} · ${meteo.condition} · ${lieux.lieux.length} lieu(x), ${evenements.evenements.length} scène(s), ${rumeurs.rumeurs.length} rumeur(s) à moins de ${lieux.rayon} px · fiche : ${lieu?.name ?? slug}`,
+    `  ${carte.name} · ${meteo.condition} · ${alentours.lieux.length} lieu(x), ${alentours.evenements.length} scène(s), ${alentours.rumeurs.length} rumeur(s) à moins de ${alentours.rayon} px · fiche : ${lieu?.name ?? slug}`,
   );
 
   const lien = lienMumble(carte);
@@ -259,9 +260,7 @@ async function main() {
     lien,
     reponses: {
       "/api/meteo/point": meteo,
-      "/api/lieux/proximite": lieux,
-      "/api/evenements/proximite": evenements,
-      "/api/rumeurs": rumeurs,
+      "/api/alentours": alentours,
       "/api/recherche": recherche,
       [`/api/lieux/${slug}`]: lieu ?? { erreur: "Lieu introuvable" },
       [`/api/lieux/${slug}/evenements`]: scenesDuLieu,
