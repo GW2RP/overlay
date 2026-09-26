@@ -52,8 +52,6 @@ async function lireJson(url) {
 
 /** Le lien Mumble tel que Rust l'émettrait pour un personnage posé au point. */
 function lienMumble(carte) {
-  const [[mx1, my1], [mx2, my2]] = carte.map_rect;
-  const [[cx1, cy1], [cx2, cy2]] = carte.continent_rect;
   return {
     tick: 48_213,
     actif: true,
@@ -82,9 +80,9 @@ function lienMumble(carte) {
       champ_de_texte_actif: false,
       en_combat: false,
     },
-    // L'inverse de `projeter` : du point de continent au repère de la carte.
-    player_x: mx1 + ((POINT.x - cx1) / (cx2 - cx1)) * (mx2 - mx1),
-    player_y: my2 - ((POINT.y - cy1) / (cy2 - cy1)) * (my2 - my1),
+    // Le jeu écrit la position en pixels de continent : le point, tel quel.
+    player_x: POINT.x,
+    player_y: POINT.y,
     map_center_x: 0,
     map_center_y: 0,
     map_scale: 1,

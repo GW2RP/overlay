@@ -128,15 +128,19 @@ l'écran le dit.
 
 Le hub range ses lieux en **pixels de continent** — ceux du continent 1 (la
 Tyrie), à l'échelle de `continent_dims` : 81 920 × 114 688, portée par le zoom
-7. Le lien donne la position du personnage dans le repère de la **carte** où il
-se tient (`playerX` / `playerY`, en pouces du jeu, le repère de `map_rect` de
-l'API) ; l'API publique du jeu (`/v2/maps/{id}`) donne le rectangle que cette
-carte occupe sur le continent (`continent_rect`). La projection est une règle de
-trois sur chaque axe, **l'axe des ordonnées renversé** : le jeu compte vers le
-nord, le continent vers le sud. `projeter` dans `src/lib/carte.ts` fait foi.
+7. Le lien donne la position du personnage (`playerX` / `playerY`) **dans ce
+même repère** : c'est celui de la carte du jeu, et le jeu l'y projette
+lui-même. `positionContinent` dans `src/lib/carte.ts` la lit telle quelle,
+arrondie au pixel. **Ne pas la reprojeter** par `map_rect` / `continent_rect` :
+la règle de trois s'applique aux pouces du jeu, pas à des pixels déjà
+projetés, et rendait un point crédible et faux — dans la bonne carte, à
+quelques cellules de là, parfois hors de son rectangle. Mesuré au Marais de
+Lumillule : « plaine, hors région » là où le personnage nageait en mer, sous
+l'orage que la carte du hub montrait au même endroit.
 
-Ce n'est **pas** `fAvatarPosition`, qui est en mètres dans un repère à trois
-axes dont le deuxième est la hauteur : rien à en faire ici.
+Ce n'est **pas** `fAvatarPosition` non plus, qui est en mètres dans un repère à
+trois axes dont le deuxième est la hauteur : elle, il faudrait la projeter, et
+le lien donne déjà le résultat.
 
 La description d'une carte se range dans les réglages (`cartes`) : une carte ne
 change pas de rectangle, et l'API n'a pas à être rappelée à chaque lancement

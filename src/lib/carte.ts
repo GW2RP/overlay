@@ -6,11 +6,16 @@ import type { LienMumble } from "@/lib/mumble";
  *
  * Le hub range ses lieux en **pixels de continent**, ceux du continent 1 (la
  * Tyrie) à l'échelle de `continent_dims` — 81 920 × 114 688. Le lien Mumble
- * donne la position du personnage dans le repère de la carte où il se tient
- * (`map_rect`, en pouces du jeu), et l'API dit quel rectangle du continent
- * cette carte occupe (`continent_rect`). La projection est une règle de trois
- * sur chaque axe — l'axe des ordonnées renversé, le jeu comptant vers le nord
- * et le continent vers le sud.
+ * donne la position du personnage (`playerX` / `playerY`) **dans ce même
+ * repère** : le jeu la projette lui-même pour sa carte, et il n'y a rien à
+ * reprojeter. Une seconde règle de trois par `map_rect` / `continent_rect`
+ * rendait un point crédible et faux — dans la même carte, à quelques cellules
+ * de là, et parfois hors de son rectangle. Mesuré au Marais de Lumillule : le
+ * point reprojeté tombait en « plaine, hors région » là où le personnage
+ * nageait en mer, sous l'orage que la carte du hub montrait.
+ *
+ * L'API du jeu (`/v2/maps/{id}`) sert encore : elle dit le continent — les
+ * Brumes n'ont pas de météo — et l'échelle des distances.
  */
 
 export const CONTINENT_TYRIE = 1;
@@ -27,15 +32,12 @@ export function enTyrie(carte: CarteGw2): boolean {
   return carte.continent_id === CONTINENT_TYRIE;
 }
 
-/** La position du personnage en pixels de continent, bornée au continent. */
-export function projeter(lien: LienMumble, carte: CarteGw2): Point {
-  const [[mx1, my1], [mx2, my2]] = carte.map_rect;
-  const [[cx1, cy1], [cx2, cy2]] = carte.continent_rect;
-  const fx = (lien.player_x - mx1) / (mx2 - mx1);
-  const fy = (my2 - lien.player_y) / (my2 - my1);
+/** La position du personnage en pixels de continent, bornée au continent :
+ *  celle que le lien écrit, arrondie au pixel. */
+export function positionContinent(lien: LienMumble): Point {
   return {
-    x: Math.min(Math.max(Math.round(cx1 + fx * (cx2 - cx1)), 0), CONTINENT_WIDTH),
-    y: Math.min(Math.max(Math.round(cy1 + fy * (cy2 - cy1)), 0), CONTINENT_HEIGHT),
+    x: Math.min(Math.max(Math.round(lien.player_x), 0), CONTINENT_WIDTH),
+    y: Math.min(Math.max(Math.round(lien.player_y), 0), CONTINENT_HEIGHT),
   };
 }
 

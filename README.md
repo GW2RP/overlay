@@ -30,12 +30,12 @@ Le hub n'est affilié ni à ArenaNet, LLC ni à NCSOFT.
 
 Le jeu publie à chaque image un bloc de mémoire partagée — le protocole du
 logiciel de voix Mumble, complété d'un contexte à lui : la carte, la position du
-personnage dans le repère de cette carte, son nom, sa profession. L'application
-le lit quatre fois par seconde. Rien n'est injecté dans le jeu.
+personnage sur la carte du monde, son nom, sa profession. L'application le lit
+quatre fois par seconde. Rien n'est injecté dans le jeu.
 
-L'API publique du jeu dit quel rectangle du continent chaque carte occupe ; la
-position se projette alors en **pixels de continent**, le repère dans lequel le
-hub range ses lieux et joue sa météo. Le reste est des lectures publiques du
+Cette position est déjà en **pixels de continent**, le repère dans lequel le
+hub range ses lieux et joue sa météo ; l'API publique du jeu ne sert qu'à dire
+le continent et l'échelle des distances. Le reste est des lectures publiques du
 hub : `/api/meteo/point` pour le ciel, `/api/lieux/proximite`,
 `/api/evenements/proximite` et `/api/rumeurs` pour les alentours,
 `/api/recherche` pour la recherche, `/api/lieux/<slug>` et ses `/evenements`
@@ -187,7 +187,7 @@ src/
   lib/
     mumble.ts           le lien du jeu, tel que Rust l'émet
     gw2.ts              les cartes du jeu, décrites par son API et rangées
-    carte.ts            la projection en pixels de continent, distances, directions
+    carte.ts            la position en pixels de continent, distances, directions
     position.ts         où le personnage se tient, pour le hub
     nexus.ts            le client du hub : session par jeton, météo, alentours, fiche, recherche
     overlays.ts         les éléments, la fiche, et ce que Rust en tient
