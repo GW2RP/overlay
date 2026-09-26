@@ -51,7 +51,7 @@ const FENETRES = [
   { label: "overlay-personnage", ancre: "#/personnage", largeur: 320, hauteur: 132, verrouille: true },
 ];
 /** La fiche d'un lieu, telle que `tauri.conf.json` la déclare. */
-const FICHE = { label: "overlay-fiche", ancre: "#/fiche", largeur: 420, hauteur: 640 };
+const FICHE = { label: "overlay-fiche", ancre: "#/fiche", largeur: 560, hauteur: 720 };
 /** Ce qu'on tape dans la recherche : assez court pour ramener plusieurs familles. */
 const RECHERCHE = "ka";
 

@@ -5,7 +5,6 @@ import { CloseIcon, UserIcon } from "@/components/icons";
 import { Markdown } from "@/components/markdown";
 import { EventGlyph, PlaceGlyph } from "@/components/type-glyph";
 import { Button } from "@/components/ui/button";
-import { useCadrePersistant } from "@/lib/cadre";
 import { direction, distance, formatUnites } from "@/lib/carte";
 import { caseDeDate, formatHeure, formatJour } from "@/lib/dates";
 import { libelle, PLACE_TYPE_LABELS, REGION_LABELS } from "@/lib/domaine";
@@ -14,17 +13,21 @@ import { ouvrirSurLeHub } from "@/lib/liens";
 import { evenementsDuLieu, lireLieu } from "@/lib/nexus";
 import { cacherOverlay, FENETRE_FICHE, useEdition, useFicheCourante } from "@/lib/overlays";
 import { usePosition } from "@/lib/position";
-import { useOpacite } from "@/lib/reglages";
 import type { Evenement, Lieu, Plan } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
  * La fiche d'un lieu, dans sa propre fenêtre.
  *
- * Elle s'ouvre depuis « À proximité » et prend toujours les clics : elle
+ * Elle s'ouvre depuis « À proximité », au milieu de l'écran du jeu et à sa
+ * taille par défaut — Rust la pose —, et prend toujours les clics : elle
  * n'existe que pour être lue, feuilletée et fermée. Son en-tête la déplace, en
- * édition ou non ; sa croix la range. Un seul lieu à la fois : en choisir un
- * autre remplace le contenu, et la fenêtre garde sa place.
+ * édition ou non ; sa croix la range. Ouverte, elle garde la place et la
+ * taille qu'on lui donne : un seul lieu à la fois, en choisir un autre
+ * remplace le contenu sans la bouger. Elle ne range pas son cadre : une
+ * fenêtre de lecture se rouvre au milieu, pas là où on l'avait laissée. Et
+ * elle ne suit pas le réglage d'opacité : ouverte, elle est là pour être lue,
+ * donc son fond reste plein quoi qu'on ait réglé pour les éléments.
  *
  * Trois onglets, ceux de la fiche du hub : ce qu'on y lit, ses plans, les
  * scènes qui s'y tiennent. Le reste — la modifier, s'inscrire, signaler —
@@ -43,9 +46,7 @@ type Lecture =
 export function FenetreFiche() {
   const slug = useFicheCourante();
   const edition = useEdition();
-  const opacite = useOpacite();
   const position = usePosition();
-  useCadrePersistant(FENETRE_FICHE.label);
 
   const [lecture, setLecture] = useState<Lecture>({ etat: "aucune" });
   const [onglet, setOnglet] = useState<Onglet>("fiche");
@@ -89,7 +90,6 @@ export function FenetreFiche() {
         "panneau-overlay flex h-dvh w-dvw flex-col overflow-hidden border-2 text-ink",
         edition && "border-gold",
       )}
-      style={{ "--opacite-panneau": edition ? 100 : opacite } as React.CSSProperties}
     >
       <div data-tauri-drag-region className="flex cursor-move items-start gap-2 py-3 pl-4 pr-2">
         <div data-tauri-drag-region className="flex min-w-0 flex-1 flex-col gap-1">

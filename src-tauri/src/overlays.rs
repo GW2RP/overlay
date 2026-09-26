@@ -38,7 +38,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
 /// Le préfixe des étiquettes de fenêtre d'overlay, dans `tauri.conf.json`.
 pub const PREFIXE_OVERLAY: &str = "overlay-";
 pub const FENETRE_PRINCIPALE: &str = "principale";
-/// L'élément « À proximité », à côté duquel la fiche s'ouvre.
+/// L'élément « À proximité », d'où la fiche s'ouvre : son écran est celui du jeu.
 pub const FENETRE_PROXIMITE: &str = "overlay-proximite";
 /// La fiche d'un lieu : une fenêtre à part, ouverte par un lieu de la liste.
 pub const FENETRE_FICHE: &str = "overlay-fiche";
@@ -59,8 +59,6 @@ pub const EVENEMENT_FICHE: &str = "fiche";
 /// et quand aucun n'en a : il n'y a alors rien à décider.
 const SUIVI_ACTIF: Duration = Duration::from_millis(40);
 const SUIVI_AU_REPOS: Duration = Duration::from_millis(250);
-/// L'espace entre l'élément et la fiche qu'il ouvre, en pixels physiques.
-const ECART_FICHE: i32 = 8;
 
 #[derive(Default)]
 pub struct Edition(AtomicBool);
@@ -384,8 +382,8 @@ pub fn suivre_les_cadenas(app: AppHandle) {
         .expect("le fil de suivi des cadenas démarre");
 }
 
-/// Ouvre la fiche d'un lieu : la fenêtre se pose à droite de « À proximité »
-/// si celle-ci est à l'écran, prend le curseur, et reçoit le slug.
+/// Ouvre la fiche d'un lieu : la fenêtre se pose au milieu de l'écran du jeu,
+/// prend le curseur, et reçoit le slug.
 ///
 /// Une seule fiche à la fois : choisir un autre lieu remplace le contenu.
 pub fn ouvrir_fiche(app: &AppHandle, slug: &str) -> Result<(), String> {
@@ -396,20 +394,16 @@ pub fn ouvrir_fiche(app: &AppHandle, slug: &str) -> Result<(), String> {
     let fiche = fenetre(app, FENETRE_FICHE)?;
     let deja_visible = fiche.is_visible().unwrap_or(false);
 
-    // Posée une fois, à l'ouverture : ensuite elle garde la place où on l'a
-    // mise, et le cadre rangé dans les réglages la reprend au démarrage.
+    // Posée au milieu de l'écran du jeu à chaque ouverture : c'est une fenêtre
+    // de lecture, pas un élément qui a sa place. Ouverte, elle garde celle
+    // qu'on lui donne, et choisir un autre lieu ne la bouge pas.
     if !deja_visible {
-        if let Ok(proximite) = fenetre(app, FENETRE_PROXIMITE) {
-            if proximite.is_visible().unwrap_or(false) {
-                if let (Ok(position), Ok(taille)) =
-                    (proximite.outer_position(), proximite.outer_size())
-                {
-                    let _ = fiche.set_position(PhysicalPosition::new(
-                        position.x + taille.width as i32 + ECART_FICHE,
-                        position.y,
-                    ));
-                }
-            }
+        if let (Some(ecran), Ok(taille)) = (ecran_du_jeu(app), fiche.outer_size()) {
+            let coin = ecran.position();
+            let dims = ecran.size();
+            let x = coin.x + (dims.width as i32 - taille.width as i32) / 2;
+            let y = coin.y + (dims.height as i32 - taille.height as i32) / 2;
+            let _ = fiche.set_position(PhysicalPosition::new(x.max(coin.x), y.max(coin.y)));
         }
     }
 
@@ -417,6 +411,16 @@ pub fn ouvrir_fiche(app: &AppHandle, slug: &str) -> Result<(), String> {
     let _ = fiche.set_focus();
     app.emit_to(FENETRE_FICHE, EVENEMENT_FICHE, slug)
         .map_err(|erreur| erreur.to_string())
+}
+
+/// L'écran où le jeu se joue : celui de « À proximité », d'où l'on vient de
+/// cliquer ; à défaut, l'écran principal. `None` quand aucun écran n'est
+/// connu, et la fenêtre reste alors où elle est.
+fn ecran_du_jeu(app: &AppHandle) -> Option<tauri::Monitor> {
+    fenetre(app, FENETRE_PROXIMITE)
+        .ok()
+        .and_then(|proximite| proximite.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten())
 }
 
 pub fn fiche_courante(app: &AppHandle) -> Option<String> {

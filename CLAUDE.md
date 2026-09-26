@@ -63,11 +63,14 @@ volerait le clic qui vient de l'ouvrir.
 **La fiche d'un lieu est une fenêtre à part** (`overlay-fiche`, `#/fiche`),
 pas un élément : elle n'est pas dans `ELEMENTS`, ne se coche pas depuis la
 principale et ne se rouvre pas au démarrage. Un lieu de « À proximité » la
-demande à Rust (`ouvrir_fiche`), qui la pose à droite de l'élément si elle
-n'était pas déjà visible, la montre, et lui émet le slug (`fiche`) ; la fiche
-le relit au montage (`fiche_courante`), parce qu'elle a pu naître après l'émis.
-Un seul lieu à la fois : en choisir un autre remplace le contenu, et la fenêtre
-garde sa place. Elle a ses onglets — fiche, plans, scènes — et rien de plus :
+demande à Rust (`ouvrir_fiche`), qui la pose **au milieu de l'écran du jeu** —
+celui de « À proximité », à défaut l'écran principal (`ecran_du_jeu`) — si
+elle n'était pas déjà visible, la montre, et lui émet le slug (`fiche`) ; la
+fiche le relit au montage (`fiche_courante`), parce qu'elle a pu naître après
+l'émis. Un seul lieu à la fois : en choisir un autre remplace le contenu, et la
+fenêtre ouverte ne bouge pas. Elle **ne range pas son cadre** : une fenêtre de
+lecture se rouvre au milieu, à sa taille par défaut, pas là où on l'avait
+laissée. Elle a ses onglets — fiche, plans, scènes — et rien de plus :
 modifier, s'inscrire, signaler restent sur le hub, ouvert dans le navigateur
 (`ouvrirSurLeHub`, greffon `opener`, `http(s)` seulement). Personnages, groupes,
 scènes et rumeurs s'ouvrent de même : l'overlay ne montre en fenêtre que la
@@ -78,11 +81,14 @@ fenêtre principale (`opacite`, en pourcent, borné à la lecture) change l'alph
 du fond et du bord du panneau (`.panneau-overlay`) ; le texte reste entier, sans
 quoi il deviendrait illisible dès que la scène s'éclaire. En édition, le panneau
 redevient plein : on le saisit par son cadre, et un cadre à demi effacé se
-cherche.
+cherche. **La fiche ne suit pas ce réglage** : les éléments restent posés sur
+le jeu et doivent le laisser voir, la fiche s'ouvre pour être lue et se
+referme ; ouverte, son fond est toujours plein.
 
-Une fenêtre **reprend sa place** au démarrage : son cadre s'écrit dans les
+Un élément **reprend sa place** au démarrage : son cadre s'écrit dans les
 réglages à chaque déplacement (`ecrireCadre`), en pixels physiques d'écran, et
-`useCadrePersistant` le relit au montage. Les éléments laissés ouverts se
+`useCadrePersistant` le relit au montage — la fiche, elle, n'en a pas, elle se
+rouvre au milieu. Les éléments laissés ouverts se
 rouvrent depuis la fenêtre principale une fois la session confirmée — ceux que
 cette version connaît seulement : un réglage écrit par une version d'avant peut
 nommer une fenêtre qui n'existe plus.
