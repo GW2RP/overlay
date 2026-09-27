@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { Point } from "@/lib/carte";
-
 export type Lecture<T> = { etat: "en-cours" } | { etat: "en-panne" } | { etat: "lu"; valeur: T };
 
 /**
- * Une lecture du hub qui se refait quand son point change et toutes les
- * `periodeMs` — **seulement tant que la fenêtre est à l'écran et que le point
- * existe**. Cachée, la fenêtre garde sa dernière lecture et ne demande rien ;
- * remontrée dans la période, elle attend le reste de la période avant de
- * relire ; sans jeu, le point disparaît et la minuterie avec lui.
+ * Une lecture du hub qui se refait quand son argument change et toutes les
+ * `periodeMs` — **seulement tant que la fenêtre est à l'écran et que
+ * l'argument existe**. Cachée, la fenêtre garde sa dernière lecture et ne
+ * demande rien ; remontrée dans la période, elle attend le reste de la période
+ * avant de relire ; sans jeu, le point disparaît et la minuterie avec lui.
+ *
+ * L'argument est ce que la lecture demande : un point pour la météo et les
+ * alentours, une limite pour les scènes du jour, qui n'ont pas de point. Il
+ * se compare par sa forme JSON — un point se recrée à chaque rendu, et
+ * l'effet ne doit se relancer que s'il a changé de valeur.
  *
  * La lecture d'avant reste affichée pendant que la suivante arrive : on voit
  * ce qu'on quitte, pas un panneau vide.
@@ -18,31 +21,30 @@ export type Lecture<T> = { etat: "en-cours" } | { etat: "en-panne" } | { etat: "
  * l'effet, et un fléchage écrit dans le composant relancerait la lecture à
  * chaque rendu.
  */
-export function useLecturePeriodique<T>(
-  point: Point | null,
+export function useLecturePeriodique<A, T>(
+  argument: A | null,
   actif: boolean,
   periodeMs: number,
-  lire: (point: Point) => Promise<T>,
+  lire: (argument: A) => Promise<T>,
 ): Lecture<T> {
-  const x = point?.x ?? null;
-  const y = point?.y ?? null;
+  const cle = argument === null ? null : JSON.stringify(argument);
   const [lecture, setLecture] = useState<Lecture<T>>({ etat: "en-cours" });
-  // Quand la dernière lecture a abouti, et pour quel point : de quoi ne pas
+  // Quand la dernière lecture a abouti, et pour quel argument : de quoi ne pas
   // relire une fenêtre qu'on vient de remontrer. Écrite dans l'effet seulement.
   const derniere = useRef<{ cle: string; quand: number } | null>(null);
 
   useEffect(() => {
-    if (!actif || x === null || y === null) return;
-    const cle = `${x}:${y}`;
+    if (!actif || cle === null) return;
+    const valeur = JSON.parse(cle) as A;
     let parti = false;
     let minuterie: ReturnType<typeof setTimeout>;
 
     const tour = async () => {
       try {
-        const valeur = await lire({ x, y });
+        const lue = await lire(valeur);
         if (parti) return;
         derniere.current = { cle, quand: Date.now() };
-        setLecture({ etat: "lu", valeur });
+        setLecture({ etat: "lu", valeur: lue });
       } catch {
         if (!parti) setLecture({ etat: "en-panne" });
       }
@@ -55,7 +57,7 @@ export function useLecturePeriodique<T>(
       parti = true;
       clearTimeout(minuterie);
     };
-  }, [x, y, actif, periodeMs, lire]);
+  }, [cle, actif, periodeMs, lire]);
 
   return lecture;
 }

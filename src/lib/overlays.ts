@@ -30,6 +30,12 @@ export const ELEMENTS = [
     titre: "Personnage",
     ancre: "#/personnage",
   },
+  {
+    id: "aujourdhui",
+    label: "overlay-aujourdhui",
+    titre: "Aujourd'hui",
+    ancre: "#/aujourdhui",
+  },
 ] as const;
 
 export type Element = (typeof ELEMENTS)[number];

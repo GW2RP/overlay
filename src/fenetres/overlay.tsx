@@ -1,4 +1,5 @@
 import { CadreElement } from "@/components/cadre-element";
+import { Aujourdhui } from "@/elements/aujourdhui";
 import { Meteo } from "@/elements/meteo";
 import { Personnage } from "@/elements/personnage";
 import { Proximite } from "@/elements/proximite";
@@ -21,6 +22,8 @@ export function FenetreOverlay({ element }: { element: Element }) {
         <Meteo position={position} actif={visible} />
       ) : element.id === "proximite" ? (
         <Proximite element={element} position={position} actif={visible} />
+      ) : element.id === "aujourdhui" ? (
+        <Aujourdhui element={element} actif={visible} />
       ) : (
         <Personnage position={position} />
       )}

@@ -82,6 +82,25 @@
         "focus": false
       },
       {
+        "label": "overlay-aujourdhui",
+        "title": "GW2RP — Aujourd'hui",
+        "url": "index.html#/aujourdhui",
+        "width": 340,
+        "height": 400,
+        "minWidth": 280,
+        "minHeight": 200,
+        "x": 400,
+        "y": 40,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false,
+        "focus": false
+      },
+      {
         "label": "overlay-fiche",
         "title": "GW2RP — Fiche du lieu",
         "url": "index.html#/fiche",

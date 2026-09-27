@@ -124,6 +124,10 @@ export type Evenement = {
 
 export type EvenementProche = Evenement & { distance: number };
 
+/** Les scènes du jour : `jour` est la date civile du serveur de jeu
+ *  (« 2026-09-27 »), `total` le compte du jour entier. */
+export type ScenesDuJour = { jour: string; total: number; evenements: Evenement[] };
+
 export type Rumeur = {
   id: string;
   body: string;
