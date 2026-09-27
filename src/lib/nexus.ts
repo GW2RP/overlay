@@ -1,7 +1,15 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 import { ecrireJeton, lireJeton, lireUrlHub } from "@/lib/reglages";
-import type { Alentours, Evenement, Lieu, Recherche, ReleveMeteo, Utilisateur } from "@/lib/types";
+import type {
+  Alentours,
+  Evenement,
+  Lieu,
+  Recherche,
+  ReleveMeteo,
+  ScenesDuJour,
+  Utilisateur,
+} from "@/lib/types";
 
 /**
  * Le client du hub.
@@ -186,6 +194,20 @@ export async function alentours(
   });
   // Un corps vide n'est pas une réponse : mieux vaut le dire que planter dessus.
   if (!donnees) throw new ErreurHub(statut, "Le hub n'a rien rendu pour les alentours.");
+  return donnees;
+}
+
+/** Les scènes publiques du jour, où que soit le personnage : celles en cours,
+ *  puis celles qui commencent avant minuit à l'heure du serveur de jeu, dans
+ *  l'ordre de l'agenda. `total` compte tout le jour, `evenements` s'arrête à
+ *  `limite`. */
+export async function scenesDuJour(limite?: number): Promise<ScenesDuJour> {
+  const { donnees, statut } = await requete<ScenesDuJour | undefined>(
+    "/api/evenements/aujourdhui",
+    { parametres: { limite }, authentifie: false },
+  );
+  // Un corps vide n'est pas une réponse : mieux vaut le dire que planter dessus.
+  if (!donnees) throw new ErreurHub(statut, "Le hub n'a rien rendu pour les scènes du jour.");
   return donnees;
 }
 

@@ -55,8 +55,8 @@ zone que le bouton a déclarée (`BoutonVerrou`, en pixels CSS, ramenés à l'é
 par `outer_position` et le facteur d'échelle). Ouvert, l'élément prend le
 curseur : on y choisit un lieu, on y tape une recherche. La météo et le
 personnage **naissent fermés** (`VERROUILLEES_AU_DEPART`), sans zone : rien à y
-cliquer ; « À proximité » naît ouvert. **Sans cadenas déclaré**, la fenêtre
-prend le curseur : c'est la fiche. Le régime s'applique **avant** de montrer
+cliquer ; « À proximité » et « Aujourd'hui » naissent ouverts. **Sans cadenas
+déclaré**, la fenêtre prend le curseur : c'est la fiche. Le régime s'applique **avant** de montrer
 une fenêtre : une fenêtre qui apparaîtrait un instant en prenant le curseur
 volerait le clic qui vient de l'ouvrir.
 
@@ -179,10 +179,19 @@ d'éléments naissent cachées et chargent leur page au démarrage ; sans cette
 règle, la météo et « À proximité » interrogeraient le hub dès la première
 position, ouvertes ou non. `useVisible` descend la visibilité en prop
 (`actif`), et `useLecturePeriodique` (`src/lib/lecture.ts`) porte la cadence
-pour les deux éléments : cachée, la fenêtre garde sa dernière lecture et ne
+pour les trois éléments : cachée, la fenêtre garde sa dernière lecture et ne
 demande rien ; remontrée dans la période, elle attend le reste ; sans jeu, le
 point disparaît et la minuterie avec lui. `lire` y est une fonction de module,
 parce qu'elle entre dans les dépendances de l'effet.
+
+**« Aujourd'hui » est la seule lecture qui ne suit pas le jeu** : les scènes
+du jour (`/api/evenements/aujourdhui`) sont les mêmes où que soit le
+personnage, donc elles se lisent dès que la fenêtre est visible, jeu détecté
+ou non, et toutes les cinq minutes. Trois au plus, les scènes en cours
+d'abord, et le chemin vers l'agenda complet du hub. Entre deux lectures,
+l'horloge avance sur place : une scène commencée passe « en cours », une scène
+dont la fin annoncée est passée disparaît. Cadenas fermé, le bouton de
+l'agenda ne s'affiche pas — il ne recevrait pas le clic.
 
 **Une lecture ne se redemande que quand elle peut changer, et depuis un point
 arrondi.** La météo (`/api/meteo/point`) se relit quand le personnage change de
