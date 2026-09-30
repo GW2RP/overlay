@@ -7,6 +7,7 @@ import type {
   Terrain,
   WeatherCondition,
 } from "@/lib/domaine";
+import type { Activite } from "@/lib/activite";
 
 /** Les formes que le hub renvoie, telles que ses routes les écrivent
  *  (`src/server/api-overlay.ts` côté hub). */
@@ -47,6 +48,8 @@ export type LieuProche = {
   district: string | null;
   coordinates: { x: number; y: number };
   upcomingEventCount: number;
+  /** Absent d'un hub d'avant les statuts. */
+  activity?: Activite | null;
   distance: number;
 };
 
@@ -75,6 +78,17 @@ export type LieuResume = {
   bannerAlt: string | null;
   coordinates: { x: number; y: number } | null;
   upcomingEventCount: number;
+  /** Absent d'un hub d'avant les statuts. */
+  activity?: Activite | null;
+};
+
+/** Une ligne de `GET /api/lieux/geres` : un lieu que le compte connecté tient,
+ *  comme auteur ou co-gérant, et son statut. */
+export type LieuGere = {
+  id: string;
+  slug: string;
+  name: string;
+  activity: Activite | null;
 };
 
 export type PointDePlan = {

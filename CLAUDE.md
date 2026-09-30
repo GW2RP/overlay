@@ -217,6 +217,21 @@ pas vide.
 montre à qui n'est pas connecté. Le jeton ne sert qu'à la session — savoir qui
 est là — et n'ouvre aucune scène privée.
 
+**Sauf le statut des lieux qu'on tient**, la seule chose que l'overlay écrive.
+Un lieu se déclare actif ou inactif, avec un court message (`Activite`,
+`src/lib/activite.ts`), et redevient inactif de lui-même à son échéance
+(`until`) : les alentours arrivent jugés, mais resservis par le CDN, donc
+l'écran **rejuge l'échéance** à chaque rendu (`activiteA`, la règle du hub).
+`useLieuxGeres` lit `GET /api/lieux/geres` avec le jeton — fenêtre visible,
+toutes les cinq minutes, et à chaque changement de jeton — pour savoir sous
+quels lieux de « À proximité » poser l'interrupteur (`ReglageStatut`) ; leur
+statut y est plus frais que celui des alentours, et le prime. L'interrupteur
+agit tout de suite sans toucher au message, le crayon ouvre le message sur
+place, et ce que le hub rend (`POST /api/lieux/[slug]/activite`) s'applique
+sans attendre la lecture suivante. **Cadenas fermé, ni l'un ni l'autre ne
+s'affiche** : ils ne recevraient pas le clic. Le statut se lit aussi dans la
+recherche et sur la fiche.
+
 Le relevé d'avant **reste affiché** pendant que le suivant arrive : on voit ce
 qu'on quitte, pas un panneau vide. Les textes longs du hub — description,
 accès — sont du **markdown**, rendus par `Markdown` avec les règles du site :

@@ -1,13 +1,17 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { BoutonVerrou } from "@/components/bouton-verrou";
+import { ReglageStatut } from "@/components/reglage-statut";
+import { StatutLieu } from "@/components/statut-lieu";
 import { EnCours, EnPanne, EtatSansPosition } from "@/components/etat-element";
 import { CloseIcon, GroupIcon, RumorIcon, SearchIcon, UserIcon } from "@/components/icons";
 import { EventGlyph, PlaceGlyph } from "@/components/type-glyph";
+import { activiteA, type Activite } from "@/lib/activite";
 import { centreDeGrille, direction, distance, formatUnites, type Point } from "@/lib/carte";
 import { caseDeDate, formatHeure, formatJour } from "@/lib/dates";
 import { libelle, PLACE_TYPE_LABELS, raceLabel, REGION_LABELS } from "@/lib/domaine";
 import { useLecturePeriodique, type Lecture } from "@/lib/lecture";
+import { useLieuxGeres, type LieuxGeres } from "@/lib/lieux-geres";
 import { alentours, rechercher } from "@/lib/nexus";
 import { ouvrirFiche, useVerrou, type Element } from "@/lib/overlays";
 import type { Position } from "@/lib/position";
@@ -66,6 +70,7 @@ export function Proximite({
 }) {
   const verrouille = useVerrou(element.label);
   const [requete, setRequete] = useState("");
+  const geres = useLieuxGeres(actif);
 
   return (
     <div className="flex h-full flex-col">
@@ -109,9 +114,9 @@ export function Proximite({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3">
         {requete.trim().length >= LONGUEUR_MINIMALE ? (
-          <Resultats requete={requete.trim()} position={position} />
+          <Resultats requete={requete.trim()} position={position} geres={geres} />
         ) : (
-          <Alentours position={position} actif={actif} />
+          <Alentours position={position} actif={actif} geres={geres} verrouille={verrouille} />
         )}
       </div>
     </div>
@@ -120,7 +125,17 @@ export function Proximite({
 
 /* --- Les alentours -------------------------------------------------------------- */
 
-function Alentours({ position, actif }: { position: Position; actif: boolean }) {
+function Alentours({
+  position,
+  actif,
+  geres,
+  verrouille,
+}: {
+  position: Position;
+  actif: boolean;
+  geres: LieuxGeres;
+  verrouille: boolean;
+}) {
   const point = position.etat === "pret" ? position.point : null;
 
   // La requête part d'une ancre — le centre de la case de grille où l'on se
@@ -158,18 +173,32 @@ function Alentours({ position, actif }: { position: Position; actif: boolean }) 
         {lieux.length === 0 ? (
           <Vide libelle="Aucun lieu à proximité" />
         ) : (
-          lieux.map((lieu) => (
-            <Ligne key={lieu.id} onClick={() => void ouvrirFiche(lieu.slug)}>
-              <PlaceGlyph type={lieu.type} size={18} className="mt-1 text-gold-ink" />
-              <Corps
-                titre={lieu.name}
-                sousTitre={`${libelle(PLACE_TYPE_LABELS, lieu.type)} · ${lieu.district ?? libelle(REGION_LABELS, lieu.region)}`}
-              />
-              <span className="shrink-0 pt-0.5 text-right caption text-ink-body">
-                {formatUnites(lieu.distance, unitesParPixel)} · {direction(ici, lieu.coordinates)}
-              </span>
-            </Ligne>
-          ))
+          lieux.map((lieu) => {
+            // Le statut d'un lieu qu'on tient vient de sa lecture à lui, que
+            // le CDN ne ressert pas : il est plus frais que celui des alentours.
+            const gere = geres.parId.get(lieu.id);
+            const activite = activiteA(gere ? gere.activity : lieu.activity);
+            return (
+              <div key={lieu.id} className="flex flex-col border-b border-hairline last:border-b-0">
+                <Ligne onClick={() => void ouvrirFiche(lieu.slug)} className="border-b-0">
+                  <PlaceGlyph type={lieu.type} size={18} className="mt-1 text-gold-ink" />
+                  <Corps
+                    titre={lieu.name}
+                    sousTitre={`${libelle(PLACE_TYPE_LABELS, lieu.type)} · ${lieu.district ?? libelle(REGION_LABELS, lieu.region)}`}
+                    statut={activite}
+                  />
+                  <span className="shrink-0 pt-0.5 text-right caption text-ink-body">
+                    {formatUnites(lieu.distance, unitesParPixel)} · {direction(ici, lieu.coordinates)}
+                  </span>
+                </Ligne>
+                {/* Cadenas fermé, les clics passent au jeu : l'interrupteur
+                    ne recevrait pas le sien. */}
+                {gere && !verrouille ? (
+                  <ReglageStatut lieu={gere} activite={activite} onEcrit={geres.ecrit} />
+                ) : null}
+              </div>
+            );
+          })
         )}
       </Section>
 
@@ -202,7 +231,15 @@ function Alentours({ position, actif }: { position: Position; actif: boolean }) 
 
 /* --- La recherche --------------------------------------------------------------- */
 
-function Resultats({ requete, position }: { requete: string; position: Position }) {
+function Resultats({
+  requete,
+  position,
+  geres,
+}: {
+  requete: string;
+  position: Position;
+  geres: LieuxGeres;
+}) {
   const [lecture, setLecture] = useState<Lecture<Recherche>>({ etat: "en-cours" });
 
   useEffect(() => {
@@ -242,6 +279,7 @@ function Resultats({ requete, position }: { requete: string; position: Position 
               <Corps
                 titre={<Surligne texte={lieu.name} motif={motif} />}
                 sousTitre={`${libelle(PLACE_TYPE_LABELS, lieu.type)} · ${lieu.district ?? libelle(REGION_LABELS, lieu.region)}`}
+                statut={activiteA(geres.parId.get(lieu.id)?.activity ?? lieu.activity)}
               />
               {ici && lieu.coordinates ? (
                 <span className="shrink-0 pt-0.5 text-right caption text-ink-body">
@@ -310,23 +348,44 @@ function Vide({ libelle }: { libelle: string }) {
   return <p className="py-2 meta text-ink-muted">{libelle}</p>;
 }
 
-function Ligne({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+function Ligne({
+  onClick,
+  className,
+  children,
+}: {
+  onClick: () => void;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-start gap-3 border-b border-hairline py-2 text-left last:border-b-0 hover:bg-surface-selected"
+      className={cn(
+        "flex w-full items-start gap-3 border-b border-hairline py-2 text-left last:border-b-0 hover:bg-surface-selected",
+        className,
+      )}
     >
       {children}
     </button>
   );
 }
 
-function Corps({ titre, sousTitre }: { titre: ReactNode; sousTitre: string }) {
+function Corps({
+  titre,
+  sousTitre,
+  statut = null,
+}: {
+  titre: ReactNode;
+  sousTitre: string;
+  /** Le statut d'un lieu, déjà jugé. */
+  statut?: Activite | null;
+}) {
   return (
     <span className="flex min-w-0 flex-1 flex-col">
       <span className="truncate body-compact text-ink">{titre}</span>
       <span className="caption text-ink-muted">{sousTitre}</span>
+      <StatutLieu activite={statut} className="mt-1" />
     </span>
   );
 }

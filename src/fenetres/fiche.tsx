@@ -3,8 +3,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { EnCours, EnPanne } from "@/components/etat-element";
 import { CloseIcon, UserIcon } from "@/components/icons";
 import { Markdown } from "@/components/markdown";
+import { StatutLieu } from "@/components/statut-lieu";
 import { EventGlyph, PlaceGlyph } from "@/components/type-glyph";
 import { Button } from "@/components/ui/button";
+import { activiteA } from "@/lib/activite";
 import { direction, distance, formatUnites } from "@/lib/carte";
 import { caseDeDate, formatHeure, formatJour } from "@/lib/dates";
 import { libelle, PLACE_TYPE_LABELS, REGION_LABELS } from "@/lib/domaine";
@@ -105,6 +107,7 @@ export function FenetreFiche() {
               <span className="meta text-ink-muted">
                 {[lieu.district ?? libelle(REGION_LABELS, lieu.region), ou].filter(Boolean).join(" · ")}
               </span>
+              <StatutLieu activite={activiteA(lieu.activity)} className="mt-1" />
             </>
           ) : (
             <span data-tauri-drag-region className="eyebrow text-gold-eyebrow">
