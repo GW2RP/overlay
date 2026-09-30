@@ -1,11 +1,11 @@
-import type { Activite } from "@/lib/activite";
+import { statutAffiche, type Activite } from "@/lib/activite";
 import { cn } from "@/lib/utils";
 
 /**
  * Le statut d'un lieu tel que son équipe le déclare : la puce, puis le message
  * entre guillemets — une parole rapportée, donc en italique. `ACTIF` est en
  * carmin comme « EN COURS » sur une scène. Un lieu qui n'a rien déclaré
- * n'affiche rien.
+ * n'affiche rien, ni un lieu inactif sans message (`statutAffiche`).
  *
  * Des `<span>` seulement : la ligne d'un lieu est un `<button>`.
  */
@@ -17,6 +17,7 @@ export function StatutLieu({
   activite: Activite | null;
   className?: string;
 }) {
+  activite = statutAffiche(activite);
   if (!activite) return null;
   return (
     <span className={cn("flex flex-wrap items-center gap-x-2 gap-y-0.5", className)}>

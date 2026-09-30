@@ -230,7 +230,9 @@ agit tout de suite sans toucher au message, le crayon ouvre le message sur
 place, et ce que le hub rend (`POST /api/lieux/[slug]/activite`) s'applique
 sans attendre la lecture suivante. **Cadenas fermé, ni l'un ni l'autre ne
 s'affiche** : ils ne recevraient pas le clic. Le statut se lit aussi dans la
-recherche et sur la fiche.
+recherche et sur la fiche. Un lieu inactif sans message n'affiche rien
+(`statutAffiche`, la règle du hub) : `INACTIF` ne se montre que pour porter un
+message.
 
 Le relevé d'avant **reste affiché** pendant que le suivant arrive : on voit ce
 qu'on quitte, pas un panneau vide. Les textes longs du hub — description,
