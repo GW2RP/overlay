@@ -153,6 +153,23 @@ export function WindIcon(props: IconProps) {
 
 /* --- Glyphes d'interface ----------------------------------------------------- */
 
+export function CheckIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3 8.4 L6.4 12 L13 4.6" />
+    </Icon>
+  );
+}
+
+/** Le crayon : modifier un texte court, sur place. */
+export function PencilIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M10.5 3 L13 5.5 L6 12.5 L3 13 L3.5 10 Z M9 4.5 L11.5 7" />
+    </Icon>
+  );
+}
+
 export function CloseIcon(props: IconProps) {
   return (
     <Icon {...props}>

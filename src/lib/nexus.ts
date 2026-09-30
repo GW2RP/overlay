@@ -1,10 +1,12 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
+import type { Activite } from "@/lib/activite";
 import { ecrireJeton, lireJeton, lireUrlHub } from "@/lib/reglages";
 import type {
   Alentours,
   Evenement,
   Lieu,
+  LieuGere,
   Recherche,
   ReleveMeteo,
   ScenesDuJour,
@@ -241,4 +243,35 @@ export async function rechercher(q: string, limite?: number): Promise<Recherche>
   });
   if (!donnees) throw new ErreurHub(statut, "Le hub n'a rien rendu pour la recherche.");
   return donnees;
+}
+
+/* --- Le statut des lieux qu'on tient ------------------------------------------ */
+
+/** Les lieux que le compte connecté tient, et leur statut. Cette lecture-là
+ *  porte le jeton : elle dit qui lit, donc le CDN ne la ressert pas. Vide sans
+ *  session plutôt qu'en erreur — ne rien tenir n'est pas une panne. */
+export async function lieuxGeres(): Promise<LieuGere[]> {
+  if (!(await lireJeton())) return [];
+  try {
+    const { donnees } = await requete<{ lieux: LieuGere[] }>("/api/lieux/geres");
+    return donnees?.lieux ?? [];
+  } catch (erreur) {
+    // 401 : session expirée. 404 : un hub d'avant les statuts.
+    if (erreur instanceof ErreurHub && (erreur.nonAutorise || erreur.statut === 404)) return [];
+    throw erreur;
+  }
+}
+
+/** Bascule le statut d'un lieu qu'on tient. Sans `message`, celui d'avant
+ *  reste ; un message vide l'efface. Rend le statut écrit. */
+export async function ecrireActivite(
+  slug: string,
+  demande: { active: boolean; message?: string },
+): Promise<Activite> {
+  const { donnees, statut } = await requete<{ activity: Activite } | undefined>(
+    `/api/lieux/${encodeURIComponent(slug)}/activite`,
+    { methode: "POST", corps: demande },
+  );
+  if (!donnees?.activity) throw new ErreurHub(statut, "Le hub n'a pas rendu le statut.");
+  return donnees.activity;
 }
