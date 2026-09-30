@@ -32,3 +32,10 @@ export function activiteA(
   }
   return activite;
 }
+
+/** Ce qui s'affiche d'un statut, la règle du hub (`statutAffiche`) : `ACTIF`
+ *  toujours, `INACTIF` seulement avec un message. Un lieu inactif sans rien à
+ *  dire n'annonce rien. */
+export function statutAffiche(activite: Activite | null): Activite | null {
+  return activite && (activite.active || activite.message) ? activite : null;
+}
