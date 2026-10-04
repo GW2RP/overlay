@@ -199,11 +199,31 @@ export async function alentours(
   return donnees;
 }
 
-/** Les scènes publiques du jour, où que soit le personnage : celles en cours,
- *  puis celles qui commencent avant minuit à l'heure du serveur de jeu, dans
+/** Les scènes du jour, où que soit le personnage : celles en cours, puis
+ *  celles qui commencent avant minuit à l'heure du serveur de jeu, dans
  *  l'ordre de l'agenda. `total` compte tout le jour, `evenements` s'arrête à
- *  `limite`. */
+ *  `limite`.
+ *
+ *  Avec un jeton, ce sont celles de l'agenda du compte — les publiques, et les
+ *  privées qui lui sont ouvertes —, par une adresse que le CDN ne ressert pas.
+ *  Sans jeton, ou si le hub le refuse (session expirée, hub d'avant cette
+ *  adresse), les publiques seulement : une scène privée manquée ne vaut pas
+ *  un élément en panne. */
 export async function scenesDuJour(limite?: number): Promise<ScenesDuJour> {
+  if (await lireJeton()) {
+    try {
+      const { donnees } = await requete<ScenesDuJour | undefined>(
+        "/api/evenements/aujourdhui/pour-moi",
+        { parametres: { limite } },
+      );
+      if (donnees) return donnees;
+    } catch (erreur) {
+      if (!(erreur instanceof ErreurHub && (erreur.nonAutorise || erreur.statut === 404))) {
+        throw erreur;
+      }
+    }
+  }
+
   const { donnees, statut } = await requete<ScenesDuJour | undefined>(
     "/api/evenements/aujourdhui",
     { parametres: { limite }, authentifie: false },

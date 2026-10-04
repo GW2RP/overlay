@@ -193,6 +193,19 @@ l'horloge avance sur place : une scène commencée passe « en cours », une sc�
 dont la fin annoncée est passée disparaît. Cadenas fermé, le bouton de
 l'agenda ne s'affiche pas — il ne recevrait pas le clic.
 
+**Connecté, « Aujourd'hui » est l'agenda du compte** : avec un jeton, la
+lecture passe par `/api/evenements/aujourdhui/pour-moi`, qui ajoute aux
+scènes publiques les privées où l'on est invité, inscrit, organisateur ou
+membre du groupe — celles que l'agenda du site montre au même compte. Une
+adresse à part, que le CDN ne ressert pas. Refusée (session expirée, hub
+d'avant cette adresse), la lecture retombe sur la publique plutôt que de
+mettre l'élément en panne. Elle se refait à chaque changement de jeton
+(`useSessionCourante`) : une connexion faite depuis la fenêtre principale
+fait apparaître ses scènes sans attendre cinq minutes. Ce changement repart
+d'un élément vide, **sans garder la lecture d'avant** : elle porte les scènes
+privées de l'ancien compte. Une scène privée se dit « Privée » : le navigateur
+où elle s'ouvre n'a pas le jeton, il faut y être connecté au même compte.
+
 **Une lecture ne se redemande que quand elle peut changer, et depuis un point
 arrondi.** La météo (`/api/meteo/point`) se relit quand le personnage change de
 **cellule** de simulation — 256 px de continent, `CELL_SIZE` comme au hub — ou
@@ -213,9 +226,10 @@ Une recherche (`/api/recherche`) part après un temps d'arrêt de la frappe, à
 partir de deux caractères, et remplace les alentours tant que le champ n'est
 pas vide.
 
-**Toutes ces routes sont publiques** : l'overlay ne montre que ce que le hub
-montre à qui n'est pas connecté. Le jeton ne sert qu'à la session — savoir qui
-est là — et n'ouvre aucune scène privée.
+**Toutes ces routes sont publiques**, sauf les scènes du jour : l'overlay ne
+montre que ce que le hub montre à qui n'est pas connecté. Le jeton sert à la
+session — savoir qui est là — et n'ouvre de scène privée que dans
+« Aujourd'hui », à celui qui pourrait déjà la lire sur le site.
 
 **Sauf le statut des lieux qu'on tient**, la seule chose que l'overlay écrive.
 Un lieu se déclare actif ou inactif, avec un court message (`Activite`,

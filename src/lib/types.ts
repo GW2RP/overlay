@@ -134,6 +134,8 @@ export type Evenement = {
   capacity: number | null;
   registeredCount: number;
   liveStatus: "annonce" | "en-cours" | "passe";
+  /** Absente d'un hub d'avant ce champ : la scène est alors publique. */
+  visibility?: "publique" | "privee";
 };
 
 export type EvenementProche = Evenement & { distance: number };

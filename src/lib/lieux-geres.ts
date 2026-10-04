@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { Activite } from "@/lib/activite";
 import { useLecturePeriodique, type Lecture } from "@/lib/lecture";
 import { lieuxGeres } from "@/lib/nexus";
-import { CLES, lireJeton, surChangement } from "@/lib/reglages";
+import { useSessionCourante } from "@/lib/session-courante";
 import type { LieuGere } from "@/lib/types";
 
 /**
@@ -26,35 +26,6 @@ const RAFRAICHISSEMENT_MS = 5 * 60 * 1000;
 
 /** L'argument — le numéro de session — ne sert qu'à relancer la lecture. */
 const lireLieuxGeres = () => lieuxGeres();
-
-/** Un numéro qui change à chaque changement de jeton, `null` sans jeton : de
- *  quoi relancer la lecture sans faire entrer le jeton dans sa clé. */
-function useSessionCourante(): number | null {
-  const [session, setSession] = useState<{ jeton: boolean; version: number }>({
-    jeton: false,
-    version: 0,
-  });
-
-  useEffect(() => {
-    let parti = false;
-    let arreter: (() => void) | null = null;
-    const suivre = (jeton: string | null | undefined) =>
-      setSession((avant) => ({ jeton: Boolean(jeton), version: avant.version + 1 }));
-    void lireJeton().then((jeton) => {
-      if (!parti) suivre(jeton);
-    });
-    void surChangement<string | null>(CLES.jeton, suivre).then((stop) => {
-      if (parti) stop();
-      else arreter = stop;
-    });
-    return () => {
-      parti = true;
-      arreter?.();
-    };
-  }, []);
-
-  return session.jeton ? session.version : null;
-}
 
 export type LieuxGeres = {
   /** Les lieux tenus, par identifiant, avec le statut le plus récent connu. */
