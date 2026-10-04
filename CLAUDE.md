@@ -201,7 +201,10 @@ adresse à part, que le CDN ne ressert pas. Refusée (session expirée, hub
 d'avant cette adresse), la lecture retombe sur la publique plutôt que de
 mettre l'élément en panne. Elle se refait à chaque changement de jeton
 (`useSessionCourante`) : une connexion faite depuis la fenêtre principale
-fait apparaître ses scènes sans attendre cinq minutes.
+fait apparaître ses scènes sans attendre cinq minutes. Ce changement repart
+d'un élément vide, **sans garder la lecture d'avant** : elle porte les scènes
+privées de l'ancien compte. Une scène privée se dit « Privée » : le navigateur
+où elle s'ouvre n'a pas le jeton, il faut y être connecté au même compte.
 
 **Une lecture ne se redemande que quand elle peut changer, et depuis un point
 arrondi.** La météo (`/api/meteo/point`) se relit quand le personnage change de

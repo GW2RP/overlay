@@ -37,8 +37,26 @@ const lireScenes = ({ limite }: { limite: number; session: number | null }) =>
   scenesDuJour(limite);
 
 export function Aujourdhui({ element, actif }: { element: Element; actif: boolean }) {
-  const verrouille = useVerrou(element.label);
   const session = useSessionCourante();
+  // Un changement de compte repart de « Lecture de l'agenda… » : la lecture
+  // d'avant porte les scènes privées de l'ancien compte, et « on voit ce qu'on
+  // quitte » les laisserait au suivant — fenêtre cachée, jusqu'à sa
+  // réouverture.
+  return (
+    <AgendaDuJour key={session ?? "anonyme"} element={element} actif={actif} session={session} />
+  );
+}
+
+function AgendaDuJour({
+  element,
+  actif,
+  session,
+}: {
+  element: Element;
+  actif: boolean;
+  session: number | null;
+}) {
+  const verrouille = useVerrou(element.label);
   const lecture = useLecturePeriodique(
     { limite: LIMITE, session },
     actif,
@@ -137,7 +155,13 @@ function LigneDuJour({ evenement, maintenant }: { evenement: Evenement; maintena
       </span>
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate body-compact text-ink">{evenement.title}</span>
-        <span className="truncate caption text-ink-muted">{evenement.locationLabel}</span>
+        <span className="truncate caption text-ink-muted">
+          {/* Le navigateur n'a pas le jeton de l'overlay : une scène privée ne
+              s'y ouvre que connecté au même compte. Autant le dire. */}
+          {evenement.visibility === "privee"
+            ? `Privée · ${evenement.locationLabel}`
+            : evenement.locationLabel}
+        </span>
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
         {enCours ? (
