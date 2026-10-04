@@ -9,6 +9,7 @@ import { useLecturePeriodique } from "@/lib/lecture";
 import { ouvrirSurLeHub } from "@/lib/liens";
 import { scenesDuJour } from "@/lib/nexus";
 import { useVerrou, type Element } from "@/lib/overlays";
+import { useSessionCourante } from "@/lib/session-courante";
 import type { Evenement } from "@/lib/types";
 
 /**
@@ -18,9 +19,11 @@ import type { Evenement } from "@/lib/types";
  *
  * Elles ne dépendent pas de la position, donc pas du jeu non plus : la lecture
  * part dès que la fenêtre est à l'écran, et se refait toutes les cinq minutes.
- * Tous les joueurs demandent la même adresse, que le CDN du hub ressert. Entre
- * deux lectures, l'horloge avance sur place : une scène commencée passe « en
- * cours », une scène finie disparaît, sans requête.
+ * Sans session, tous les joueurs demandent la même adresse, que le CDN du hub
+ * ressert ; connecté, l'agenda du compte, scènes privées comprises — et une
+ * connexion ou une déconnexion relit tout de suite. Entre deux lectures,
+ * l'horloge avance sur place : une scène commencée passe « en cours », une
+ * scène finie disparaît, sans requête.
  */
 
 const LIMITE = 3;
@@ -28,11 +31,20 @@ const RAFRAICHISSEMENT_MS = 5 * 60 * 1000;
 /** L'horloge qui fait avancer « dans 20 min » sans relire le hub. */
 const HORLOGE_MS = 30 * 1000;
 
-const lireScenes = (limite: number) => scenesDuJour(limite);
+/** Le numéro de session ne sert qu'à relancer la lecture : le jeton, lui, est
+ *  relu par la requête. */
+const lireScenes = ({ limite }: { limite: number; session: number | null }) =>
+  scenesDuJour(limite);
 
 export function Aujourdhui({ element, actif }: { element: Element; actif: boolean }) {
   const verrouille = useVerrou(element.label);
-  const lecture = useLecturePeriodique(LIMITE, actif, RAFRAICHISSEMENT_MS, lireScenes);
+  const session = useSessionCourante();
+  const lecture = useLecturePeriodique(
+    { limite: LIMITE, session },
+    actif,
+    RAFRAICHISSEMENT_MS,
+    lireScenes,
+  );
   const maintenant = useMaintenant(actif);
 
   const jour = lecture.etat === "lu" ? lecture.valeur.jour : null;
