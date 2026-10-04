@@ -1,6 +1,6 @@
 [package]
 name = "gw2rp-overlay"
-version = "1.4.0"
+version = "1.4.1"
 description = "L'overlay de jeu du hub GW2RP Nexus : météo et lieux de RP à l'emplacement du personnage."
 authors = ["La communauté GW2RP"]
 edition = "2021"
