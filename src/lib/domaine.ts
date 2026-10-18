@@ -5,7 +5,20 @@
  *  type que cette version ne connaît pas — s'affiche telle quelle plutôt que
  *  de faire tomber l'élément. */
 
-export const REGIONS = ["kryte", "ascalon", "maguuma", "shiverpeaks", "orr", "desert"] as const;
+export const REGIONS = [
+  "kryte",
+  "ascalon",
+  "maguuma",
+  "shiverpeaks",
+  "orr",
+  "desert",
+  "cantha",
+  "shing-jea",
+  "echovald",
+  "kaineng",
+  "mer-de-jade",
+  "brumes",
+] as const;
 export type Region = (typeof REGIONS)[number];
 
 export const REGION_LABELS: Record<Region, string> = {
@@ -15,6 +28,12 @@ export const REGION_LABELS: Record<Region, string> = {
   shiverpeaks: "Pics Glacés",
   orr: "Orr",
   desert: "Désert de Cristal",
+  cantha: "Cantha",
+  "shing-jea": "Shing Jea",
+  echovald: "Echovald",
+  kaineng: "Kaineng",
+  "mer-de-jade": "Mer de Jade",
+  brumes: "Brumes",
 };
 
 export const WEATHER_CONDITIONS = [
