@@ -5,6 +5,9 @@ node_modules
 dist
 dist-ssr
 src-tauri/target
+src-tauri/archive-gw2/target
+src-tauri/archive-gw2/Cargo.lock
+rapport-decouverte.json
 src-tauri/gen/schemas
 
 # Journaux
