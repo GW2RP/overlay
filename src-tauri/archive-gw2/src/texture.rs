@@ -725,7 +725,7 @@ fn decoder_niveau(format: u32, niveau: Niveau<'_>) -> Result<Image, ErreurTextur
     }
 
     if format == DXTL {
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             let a = u32::from(pixel[3]);
             for c in &mut pixel[..3] {
                 *c = (u32::from(*c) * a / 255) as u8;
@@ -749,7 +749,9 @@ fn decoder_niveau(format: u32, niveau: Niveau<'_>) -> Result<Image, ErreurTextur
 fn decoupee(rgba: &[u8]) -> bool {
     let pixels = rgba.len() / 4;
     let transparents = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|p| p[3] < SEUIL_TRANSPARENT)
         .count();
     pixels > 0 && transparents * 20 >= pixels
@@ -809,7 +811,12 @@ mod tests {
             octets: &octets,
         };
         let image = decoder_niveau(DXT1, niveau).unwrap();
-        assert!(image.rgba.chunks_exact(4).all(|p| p == [255, 0, 0, 255]));
+        assert!(image
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| *p == [255, 0, 0, 255]));
         assert!(!image.decoupee);
     }
 

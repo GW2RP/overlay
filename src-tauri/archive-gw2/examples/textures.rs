@@ -25,7 +25,7 @@ fn ecrire_tga(chemin: &str, image: &Image) {
     o[14..16].copy_from_slice(&(image.hauteur as u16).to_le_bytes());
     o[16] = 32;
     o[17] = 0x28; // ligne du haut d'abord, huit bits d'alpha
-    for p in image.rgba.chunks_exact(4) {
+    for p in image.rgba.as_chunks::<4>().0 {
         o.extend([p[2], p[1], p[0], p[3]]);
     }
     std::fs::write(chemin, o).expect("écriture");
