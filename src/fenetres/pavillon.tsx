@@ -1,14 +1,39 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 
-import { ScenePavillon } from "@/components/scene-pavillon";
+import { CataloguePavillon } from "@/components/catalogue-pavillon";
+import { InspecteurPavillon } from "@/components/inspecteur-pavillon";
+import { Modale } from "@/components/modale";
+import { ScenePavillon, type Outil } from "@/components/scene-pavillon";
 import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/field";
+import { Input, Label, Select } from "@/components/ui/field";
+import {
+  choisirDossier,
+  dossierParDefaut,
+  ecrireFichierDisposition,
+  exporterDisposition,
+  lireFichierDisposition,
+  listerDispositions,
+  nomDeFichier,
+  sansExtension,
+  type FichierDisposition,
+} from "@/lib/dispositions";
+import { useHistorique } from "@/lib/historique";
 import {
   CHEMIN_ARCHIVE_PAR_DEFAUT,
   ErreurDisposition,
+  ecrireDisposition,
   lireDisposition,
   lireFiches,
   lireModele,
+  nouvelleCle,
   ouvrirArchive,
   sortesDe,
   type Decoration,
@@ -17,67 +42,288 @@ import {
   type FicheDecoration,
   type Maillage,
 } from "@/lib/pavillon";
-import { ecrireArchive, lireArchive } from "@/lib/reglages";
+import {
+  ecrireArchive,
+  ecrireDossierDispositions,
+  lireArchive,
+  lireDossierDispositions,
+} from "@/lib/reglages";
 
 /**
  * L'éditeur de pavillon : une fenêtre à part, à chrome, qu'on ouvre depuis la
- * principale. On y importe la disposition que le jeu exporte, et on la voit
- * en trois dimensions, la liste de ses décorations à côté.
+ * principale. On y choisit le dossier où le jeu range ses dispositions, on en
+ * ouvre une — ou on importe un fichier d'ailleurs —, on la voit en trois
+ * dimensions et on la corrige : déplacer, tourner, mettre à l'échelle,
+ * ajouter, dupliquer, retirer, une décoration ou plusieurs à la fois.
  *
- * Une décoration choisie dans la liste s'allume dans la scène ; une
- * décoration cliquée dans la scène choisit sa sorte dans la liste.
+ * Chaque geste pose un nouvel état (`useHistorique`) : « annuler » rend le
+ * précédent. Enregistrer écrit un nouveau fichier dans le dossier, ou
+ * remplace celui d'où la disposition vient ; exporter l'écrit ailleurs.
  */
-export function FenetrePavillon() {
-  const [disposition, setDisposition] = useState<Disposition | null>(null);
-  const [nomFichier, setNomFichier] = useState<string | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
-  const [choisie, setChoisie] = useState<number | null>(null);
-  const [cliquee, setCliquee] = useState<Decoration | null>(null);
-  const champ = useRef<HTMLInputElement>(null);
 
-  const sortes = useMemo(() => (disposition ? sortesDe(disposition) : []), [disposition]);
+/** Une disposition ouverte : ce que son en-tête dit, et d'où elle vient. */
+type Ouverte = {
+  disposition: Disposition;
+  /** Le fichier du dossier d'où elle a été lue ou où elle a été
+   *  enregistrée ; `null` pour un fichier importé d'ailleurs. */
+  fichier: string | null;
+  /** Son nom, sans extension : celui du fichier, ou de l'import. */
+  nom: string;
+};
+
+type Onglet = "dispositions" | "decorations";
+
+type EtatModale = { type: "enregistrer" } | { type: "abandonner"; ensuite: () => void } | null;
+
+/** Le pas des poignées et des flèches, en pouces. */
+const PAS_POSITION = [1, 10, 50, 100] as const;
+/** Le pas de la poignée de rotation, en degrés. */
+const PAS_ANGLE = [5, 15, 45, 90] as const;
+/** Le pas des flèches quand les poignées sont libres. */
+const PAS_CLAVIER_LIBRE = 10;
+
+const OUTILS: { outil: Outil; libelle: string }[] = [
+  { outil: "deplacer", libelle: "DÉPLACER" },
+  { outil: "tourner", libelle: "TOURNER" },
+  { outil: "echelle", libelle: "ÉCHELLE" },
+];
+
+/** Une erreur de Rust, ou d'ailleurs, en une phrase. */
+function phrase(cause: unknown, defaut: string): string {
+  const texte = typeof cause === "string" ? cause : cause instanceof Error ? cause.message : "";
+  if (!texte) return defaut;
+  const debut = texte.charAt(0).toLocaleUpperCase("fr-FR") + texte.slice(1);
+  return /[.!?…]$/.test(debut) ? debut : `${debut}.`;
+}
+
+export function FenetrePavillon() {
+  const [ouverte, setOuverte] = useState<Ouverte | null>(null);
+  const [cadrage, setCadrage] = useState(0);
+  const historique = useHistorique<Decoration[]>([]);
+  const decorations = historique.present;
+  const [selection, setSelection] = useState<ReadonlySet<number>>(new Set());
+  const [outil, setOutil] = useState<Outil>("deplacer");
+  const [pas, setPas] = useState<number | null>(10);
+  const [pasAngle, setPasAngle] = useState<number | null>(15);
+  const [onglet, setOnglet] = useState<Onglet>("dispositions");
+  const [catalogue, setCatalogue] = useState(false);
+  const [modale, setModale] = useState<EtatModale>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [annonce, setAnnonce] = useState<string | null>(null);
+  const champ = useRef<HTMLInputElement>(null);
+  const pointDePose = useRef<(() => [number, number, number]) | null>(null);
+
+  const dossier = useDossier();
+  const sortes = useMemo(() => sortesDe(decorations), [decorations]);
   const ids = sortes.map((sorte) => sorte.id);
   const fiches = useFiches(ids);
   const archive = useArchive();
   const modeles = useModeles(ids, archive.ouverte);
+
+  const choisies = useMemo(() => decorations.filter((d) => selection.has(d.cle)), [decorations, selection]);
+  const rangs = useMemo(() => new Map(decorations.map((d, i) => [d.cle, i + 1])), [decorations]);
+
+  /* --- Ouvrir ------------------------------------------------------------- */
+
+  function ouvrir(texte: string, fichier: string | null, nom: string) {
+    try {
+      const lue = lireDisposition(texte);
+      setOuverte({ disposition: lue, fichier, nom });
+      historique.repartir(lue.decorations);
+      setSelection(new Set());
+      setCadrage((c) => c + 1);
+      setErreur(null);
+      setAnnonce(null);
+    } catch (cause) {
+      setErreur(cause instanceof ErreurDisposition ? cause.message : "Ce fichier ne se lit pas.");
+    }
+  }
+
+  /** Quitter une disposition modifiée demande d'abandonner ses
+   *  modifications. */
+  function apresConfirmation(action: () => void) {
+    if (historique.modifie) setModale({ type: "abandonner", ensuite: action });
+    else action();
+  }
+
+  function chargerFichier(nom: string) {
+    if (!dossier.dossier) return;
+    const depuis = dossier.dossier;
+    apresConfirmation(() => {
+      lireFichierDisposition(depuis, nom)
+        .then((texte) => ouvrir(texte, nom, sansExtension(nom)))
+        .catch((cause) => setErreur(phrase(cause, "Ce fichier ne se lit pas.")));
+    });
+  }
 
   async function importer(evenement: ChangeEvent<HTMLInputElement>) {
     const fichier = evenement.target.files?.[0];
     // Le même fichier, réimporté après une modification, doit se relire.
     evenement.target.value = "";
     if (!fichier) return;
-    setErreur(null);
-    try {
-      const lue = lireDisposition(await fichier.text());
-      setDisposition(lue);
-      setNomFichier(fichier.name);
-      setChoisie(null);
-      setCliquee(null);
-    } catch (cause) {
-      setErreur(
-        cause instanceof ErreurDisposition ? cause.message : "Ce fichier ne se lit pas.",
-      );
-    }
+    const texte = await fichier.text();
+    apresConfirmation(() => ouvrir(texte, null, sansExtension(fichier.name)));
   }
 
-  function choisirDansLaScene(decoration: Decoration | null) {
-    setCliquee(decoration);
-    setChoisie(decoration?.id ?? null);
+  /* --- Les gestes --------------------------------------------------------- */
+
+  const remplacer = useCallback(
+    (modifiees: Decoration[]) => {
+      const parCle = new Map(modifiees.map((d) => [d.cle, d]));
+      historique.appliquer(decorations.map((d) => parCle.get(d.cle) ?? d));
+    },
+    [decorations, historique],
+  );
+
+  const cliquer = useCallback((cle: number | null, ajouter: boolean) => {
+    setSelection((avant) => {
+      if (cle === null) return ajouter ? avant : new Set();
+      if (!ajouter) return new Set([cle]);
+      const suivante = new Set(avant);
+      if (suivante.has(cle)) suivante.delete(cle);
+      else suivante.add(cle);
+      return suivante;
+    });
+  }, []);
+
+  function choisirSorte(id: number, ajouter: boolean) {
+    const cles = decorations.filter((d) => d.id === id).map((d) => d.cle);
+    const toutes = cles.every((cle) => selection.has(cle));
+    if (!ajouter) {
+      setSelection(toutes && cles.length === selection.size ? new Set() : new Set(cles));
+      return;
+    }
+    const suivante = new Set(selection);
+    for (const cle of cles) {
+      if (toutes) suivante.delete(cle);
+      else suivante.add(cle);
+    }
+    setSelection(suivante);
   }
+
+  function ajouter(fiche: FicheDecoration) {
+    const nouvelle: Decoration = {
+      cle: nouvelleCle(),
+      id: fiche.id,
+      nom: fiche.name,
+      position: pointDePose.current?.() ?? [0, 0, 0],
+      rotation: [0, 0, 0],
+      echelle: 1,
+    };
+    historique.appliquer([...decorations, nouvelle]);
+    setSelection(new Set([nouvelle.cle]));
+  }
+
+  /** Les copies se posent sur les originaux, choisies à leur place : on les
+   *  emmène ensuite aux poignées ou aux flèches. */
+  function dupliquer() {
+    if (choisies.length === 0) return;
+    const copies = choisies.map((d) => ({ ...d, cle: nouvelleCle() }));
+    historique.appliquer([...decorations, ...copies]);
+    setSelection(new Set(copies.map((d) => d.cle)));
+  }
+
+  function retirer() {
+    if (choisies.length === 0) return;
+    historique.appliquer(decorations.filter((d) => !selection.has(d.cle)));
+    setSelection(new Set());
+  }
+
+  function deplacer(dx: number, dy: number, dz: number) {
+    if (choisies.length === 0) return;
+    remplacer(
+      choisies.map((d) => ({
+        ...d,
+        position: [d.position[0] + dx, d.position[1] + dy, d.position[2] + dz],
+      })),
+    );
+  }
+
+  // Le clavier de la scène. Les champs gardent leurs touches, et une boîte
+  // ouverte garde toutes les siennes.
+  const clavier = useRef<(e: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    clavier.current = (e: KeyboardEvent) => {
+      if (!ouverte || modale) return;
+      const cible = e.target as HTMLElement | null;
+      if (cible?.closest("input, select, textarea")) return;
+      const ctrl = e.ctrlKey || e.metaKey;
+      const touche = e.key.toLowerCase();
+      const pasClavier = (pas ?? PAS_CLAVIER_LIBRE) / (e.shiftKey ? 10 : 1);
+      const fleches: Record<string, [number, number, number]> = {
+        arrowleft: [-pasClavier, 0, 0],
+        arrowright: [pasClavier, 0, 0],
+        arrowup: [0, pasClavier, 0],
+        arrowdown: [0, -pasClavier, 0],
+        // z compte vers le bas : monter, c'est le diminuer.
+        pageup: [0, 0, -pasClavier],
+        pagedown: [0, 0, pasClavier],
+      };
+      if (ctrl && touche === "z" && !e.shiftKey) historique.annuler();
+      else if (ctrl && (touche === "y" || (touche === "z" && e.shiftKey))) historique.retablir();
+      else if (ctrl && touche === "d") dupliquer();
+      else if (ctrl && touche === "a") setSelection(new Set(decorations.map((d) => d.cle)));
+      else if (!ctrl && (e.key === "Delete" || e.key === "Backspace")) retirer();
+      else if (e.key === "Escape") setSelection(new Set());
+      else if (!ctrl && fleches[touche] && choisies.length > 0) deplacer(...fleches[touche]);
+      else return;
+      e.preventDefault();
+    };
+  });
+  useEffect(() => {
+    const ecouter = (e: KeyboardEvent) => clavier.current(e);
+    window.addEventListener("keydown", ecouter);
+    return () => window.removeEventListener("keydown", ecouter);
+  }, []);
+
+  /* --- Écrire ------------------------------------------------------------- */
+
+  function texteCourant(): string {
+    return ouverte ? ecrireDisposition({ ...ouverte.disposition, decorations }) : "";
+  }
+
+  async function enregistrer(nom: string, remplacerFichier: boolean): Promise<void> {
+    if (!ouverte || !dossier.dossier) return;
+    await ecrireFichierDisposition(dossier.dossier, nom, texteCourant(), remplacerFichier);
+    setOuverte({ ...ouverte, fichier: nom, nom: sansExtension(nom) });
+    historique.marquerEnregistre();
+    setModale(null);
+    setAnnonce(`Enregistrée dans ${nom}`);
+    void dossier.rafraichir();
+  }
+
+  function exporter() {
+    if (!ouverte) return;
+    setErreur(null);
+    exporterDisposition(nomDeFichier(ouverte.nom), dossier.dossier, texteCourant())
+      .then((chemin) => {
+        if (chemin) setAnnonce(`Exportée vers ${chemin}`);
+      })
+      .catch((cause) => setErreur(phrase(cause, "La disposition ne s'exporte pas.")));
+  }
+
+  /* --- L'écran ------------------------------------------------------------ */
+
+  const meta = ouverte
+    ? [
+        titreDe(ouverte.disposition),
+        `${decorations.length} décorations`,
+        ouverte.fichier ?? "importée",
+      ].join(" · ")
+    : null;
 
   return (
     <div className="flex h-dvh flex-col">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b-2 border-rule px-6 py-4">
-        <div>
+        <div className="min-w-0">
           <p className="eyebrow text-gold-eyebrow">PAVILLON</p>
-          <h1 className="card-title text-ink">
-            {titreDe(disposition)}
-          </h1>
-          {disposition && nomFichier ? (
-            <p className="caption text-ink-muted">
-              {nomFichier} · {disposition.decorations.length} décorations
-            </p>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="card-title text-ink">{ouverte ? ouverte.nom : "Éditeur de pavillon"}</h1>
+            {historique.modifie ? (
+              <span className="border border-chip-edge bg-chip px-2 py-1 chip-label text-gold-ink">MODIFIÉE</span>
+            ) : null}
+          </div>
+          {meta ? <p className="caption text-ink-muted">{meta}</p> : null}
         </div>
         <input
           ref={champ}
@@ -88,9 +334,22 @@ export function FenetrePavillon() {
           aria-hidden="true"
           onChange={(e) => void importer(e)}
         />
-        <Button type="button" onClick={() => champ.current?.click()}>
-          IMPORTER UNE DISPOSITION
-        </Button>
+        <div className="flex flex-wrap gap-3">
+          <Button type="button" variant="outline" onClick={() => champ.current?.click()}>
+            IMPORTER UN FICHIER
+          </Button>
+          <Button type="button" variant="outline" disabled={!ouverte} onClick={exporter}>
+            EXPORTER…
+          </Button>
+          <Button
+            type="button"
+            variant={modale ? "outline" : "default"}
+            disabled={!ouverte}
+            onClick={() => setModale({ type: "enregistrer" })}
+          >
+            ENREGISTRER
+          </Button>
+        </div>
       </header>
 
       <BarreArchive archive={archive} />
@@ -100,65 +359,417 @@ export function FenetrePavillon() {
           {erreur}
         </p>
       ) : null}
+      <p role="status" className={annonce ? "mx-6 mt-4 caption text-ink-muted" : "sr-only"}>
+        {annonce}
+      </p>
 
-      {disposition ? (
-        <div className="flex min-h-0 flex-1">
-          <aside className="flex w-[320px] shrink-0 flex-col border-r border-rule">
-            <h2 className="panel-title border-b border-hairline px-5 py-3 text-ink">
-              {`${sortes.length} SORTES`}
-            </h2>
-            <ul className="min-h-0 flex-1 overflow-y-auto">
-              {sortes.map((sorte) => {
-                const fiche = fiches.get(sorte.id);
-                const active = sorte.id === choisie;
-                return (
-                  <li key={sorte.id}>
-                    <button
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => {
-                        setChoisie(active ? null : sorte.id);
-                        setCliquee(null);
-                      }}
-                      className={`flex w-full items-center gap-3 border-b border-hairline px-5 py-2 text-left ${
-                        active ? "bg-surface-selected" : "hover:bg-surface-selected"
-                      }`}
-                    >
-                      <Icone fiche={fiche} />
-                      <span className="min-w-0 flex-1 body-compact text-ink">{fiche?.name ?? sorte.nom}</span>
-                      <span className="meta text-ink-muted">{sorte.nombre}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </aside>
-
-          <section className="relative min-w-0 flex-1">
-            <ScenePavillon
-              decorations={disposition.decorations}
-              modeles={modeles}
-              choisie={choisie}
-              onChoisir={choisirDansLaScene}
+      <div className="flex min-h-0 flex-1">
+        <aside className="flex w-[340px] shrink-0 flex-col border-r border-rule">
+          <nav aria-label="Colonne" className="flex border-b border-hairline">
+            {(["dispositions", "decorations"] as const).map((o) => (
+              <button
+                key={o}
+                type="button"
+                aria-pressed={onglet === o}
+                onClick={() => setOnglet(o)}
+                className={`min-h-tap flex-1 border-b-2 button-label ${
+                  onglet === o ? "border-crimson text-gold-ink" : "border-transparent text-ink-muted"
+                }`}
+              >
+                {o === "dispositions" ? "DISPOSITIONS" : "DÉCORATIONS"}
+              </button>
+            ))}
+          </nav>
+          {onglet === "dispositions" ? (
+            <ListeDispositions dossier={dossier} courant={ouverte?.fichier ?? null} onOuvrir={chargerFichier} />
+          ) : (
+            <ListeSortes
+              sortes={sortes}
+              fiches={fiches}
+              selection={selection}
+              decorations={decorations}
+              onChoisir={choisirSorte}
             />
-            {cliquee ? <Detail decoration={cliquee} fiche={fiches.get(cliquee.id)} /> : null}
-          </section>
-        </div>
-      ) : (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="panel-title text-ink-muted">AUCUNE DISPOSITION</p>
-        </div>
-      )}
+          )}
+        </aside>
+
+        {ouverte ? (
+          <>
+            <section className="flex min-w-0 flex-1 flex-col">
+              <div role="toolbar" aria-label="Outils" className="flex flex-wrap items-end gap-3 border-b border-rule px-4 py-3">
+                <div className="flex">
+                  {OUTILS.map(({ outil: o, libelle }) => (
+                    <Button
+                      key={o}
+                      type="button"
+                      size="sm"
+                      variant={outil === o ? "outline" : "quiet"}
+                      aria-pressed={outil === o}
+                      onClick={() => setOutil(o)}
+                    >
+                      {libelle}
+                    </Button>
+                  ))}
+                </div>
+                <ChoixPas
+                  id="pas-position"
+                  etiquette="Pas"
+                  valeur={pas}
+                  choix={PAS_POSITION.map((p) => ({ valeur: p, libelle: `${p} pouces` }))}
+                  onChange={setPas}
+                />
+                <ChoixPas
+                  id="pas-angle"
+                  etiquette="Angle"
+                  valeur={pasAngle}
+                  choix={PAS_ANGLE.map((p) => ({ valeur: p, libelle: `${p}°` }))}
+                  onChange={setPasAngle}
+                />
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="quiet" disabled={!historique.peutAnnuler} onClick={historique.annuler}>
+                    ANNULER
+                  </Button>
+                  <Button type="button" size="sm" variant="quiet" disabled={!historique.peutRetablir} onClick={historique.retablir}>
+                    RÉTABLIR
+                  </Button>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  aria-pressed={catalogue}
+                  className="ml-auto"
+                  onClick={() => setCatalogue((c) => !c)}
+                >
+                  AJOUTER UNE DÉCORATION
+                </Button>
+              </div>
+              <div className="relative min-h-0 flex-1">
+                <ScenePavillon
+                  cadrage={cadrage}
+                  decorations={decorations}
+                  modeles={modeles}
+                  selection={selection}
+                  outil={outil}
+                  pasPosition={pas}
+                  pasAngle={pasAngle === null ? null : (pasAngle * Math.PI) / 180}
+                  onCliquer={cliquer}
+                  onTransformer={remplacer}
+                  pointDePoseRef={pointDePose}
+                />
+              </div>
+            </section>
+            <aside className="flex w-[400px] shrink-0 flex-col border-l border-rule">
+              {catalogue ? (
+                <CataloguePavillon onChoisir={ajouter} onFermer={() => setCatalogue(false)} />
+              ) : (
+                <InspecteurPavillon
+                  choisies={choisies}
+                  fiches={fiches}
+                  rangs={rangs}
+                  onModifier={(d) => remplacer([d])}
+                  onDupliquer={dupliquer}
+                  onRetirer={retirer}
+                />
+              )}
+            </aside>
+          </>
+        ) : (
+          <div className="flex flex-1 items-center justify-center">
+            <p className="panel-title text-ink-muted">AUCUNE DISPOSITION</p>
+          </div>
+        )}
+      </div>
+
+      {modale?.type === "abandonner" ? (
+        <Modale
+          titre="ABANDONNER LES MODIFICATIONS ?"
+          onFermer={() => setModale(null)}
+          actions={
+            <>
+              <Button type="button" variant="quiet" onClick={() => setModale(null)}>
+                ANNULER
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setModale(null);
+                  modale.ensuite();
+                }}
+              >
+                ABANDONNER
+              </Button>
+            </>
+          }
+        />
+      ) : null}
+      {modale?.type === "enregistrer" && ouverte ? (
+        <ModaleEnregistrer
+          ouverte={ouverte}
+          dossier={dossier}
+          onEnregistrer={enregistrer}
+          onFermer={() => setModale(null)}
+        />
+      ) : null}
     </div>
   );
 }
 
 /** Le nom de la carte, son numéro à défaut, et rien d'inventé sans l'un ni
  *  l'autre. */
-function titreDe(disposition: Disposition | null): string {
-  if (disposition?.carteNom) return disposition.carteNom;
-  if (disposition?.carteId) return `Carte ${disposition.carteId}`;
-  return "Éditeur de pavillon";
+function titreDe(disposition: Disposition): string {
+  if (disposition.carteNom) return disposition.carteNom;
+  if (disposition.carteId) return `Carte ${disposition.carteId}`;
+  return "Carte inconnue";
+}
+
+function ChoixPas({
+  id,
+  etiquette,
+  valeur,
+  choix,
+  onChange,
+}: {
+  id: string;
+  etiquette: string;
+  valeur: number | null;
+  choix: { valeur: number; libelle: string }[];
+  onChange: (valeur: number | null) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <Label htmlFor={id} className="caption">
+        {etiquette}
+      </Label>
+      <Select
+        id={id}
+        value={valeur ?? ""}
+        onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+        className="w-auto py-2"
+      >
+        <option value="">Libre</option>
+        {choix.map((c) => (
+          <option key={c.valeur} value={c.valeur}>
+            {c.libelle}
+          </option>
+        ))}
+      </Select>
+    </div>
+  );
+}
+
+/* --- Le dossier --------------------------------------------------------------- */
+
+type Dossier = {
+  dossier: string | null;
+  fichiers: FichierDisposition[];
+  erreur: string | null;
+  choisir: () => Promise<void>;
+  rafraichir: () => Promise<void>;
+};
+
+/** Le dossier des dispositions : celui qu'on a choisi, à défaut celui où le
+ *  jeu les range sur cette machine. La liste se relit quand la fenêtre
+ *  reprend le focus : on revient d'un export fait dans le jeu. */
+function useDossier(): Dossier {
+  const [dossier, setDossier] = useState<string | null>(null);
+  const [fichiers, setFichiers] = useState<FichierDisposition[]>([]);
+  const [erreur, setErreur] = useState<string | null>(null);
+
+  const lire = useCallback(async (chemin: string) => {
+    try {
+      const lus = await listerDispositions(chemin);
+      lus.sort((a, b) => a.nom.localeCompare(b.nom, "fr-FR"));
+      setFichiers(lus);
+      setErreur(null);
+    } catch (cause) {
+      setFichiers([]);
+      setErreur(phrase(cause, "Ce dossier ne se lit pas."));
+    }
+  }, []);
+
+  useEffect(() => {
+    let parti = false;
+    (async () => {
+      const range = await lireDossierDispositions();
+      const chemin = range ?? (await dossierParDefaut());
+      if (parti || !chemin) return;
+      setDossier(chemin);
+      if (!range) await ecrireDossierDispositions(chemin);
+      await lire(chemin);
+    })().catch((cause) => console.error("le dossier des dispositions ne se lit pas", cause));
+    return () => {
+      parti = true;
+    };
+  }, [lire]);
+
+  useEffect(() => {
+    if (!dossier) return;
+    const relire = () => void lire(dossier);
+    window.addEventListener("focus", relire);
+    return () => window.removeEventListener("focus", relire);
+  }, [dossier, lire]);
+
+  const choisir = useCallback(async () => {
+    try {
+      const chemin = await choisirDossier(dossier);
+      if (!chemin) return;
+      setDossier(chemin);
+      await ecrireDossierDispositions(chemin);
+      await lire(chemin);
+    } catch (cause) {
+      setErreur(phrase(cause, "Ce dossier ne se choisit pas."));
+    }
+  }, [dossier, lire]);
+
+  const rafraichir = useCallback(() => (dossier ? lire(dossier) : Promise.resolve()), [dossier, lire]);
+
+  return { dossier, fichiers, erreur, choisir, rafraichir };
+}
+
+function ChampDossier({ dossier }: { dossier: Dossier }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor="dossier-dispositions">Dossier des dispositions</Label>
+      <div className="flex gap-2">
+        <Input
+          id="dossier-dispositions"
+          readOnly
+          value={dossier.dossier ?? ""}
+          placeholder="Aucun dossier"
+          title={dossier.dossier ?? undefined}
+          className="min-w-0 flex-1 caption"
+        />
+        <Button type="button" variant="quiet" size="sm" onClick={() => void dossier.choisir()}>
+          CHOISIR…
+        </Button>
+      </div>
+      {dossier.erreur ? (
+        <p role="alert" className="caption text-crimson-ink">
+          {dossier.erreur}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ListeDispositions({
+  dossier,
+  courant,
+  onOuvrir,
+}: {
+  dossier: Dossier;
+  courant: string | null;
+  onOuvrir: (nom: string) => void;
+}) {
+  const [recherche, setRecherche] = useState("");
+  const cherche = recherche.trim().toLocaleLowerCase("fr-FR");
+  const trouves = dossier.fichiers.filter(
+    (f) =>
+      !cherche ||
+      f.nom.toLocaleLowerCase("fr-FR").includes(cherche) ||
+      (f.carte ?? "").toLocaleLowerCase("fr-FR").includes(cherche),
+  );
+
+  return (
+    <>
+      <div className="flex flex-col gap-4 px-5 py-4">
+        <ChampDossier dossier={dossier} />
+        {dossier.fichiers.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="recherche-dispositions">Rechercher</Label>
+            <Input
+              id="recherche-dispositions"
+              type="search"
+              placeholder="Nom ou carte"
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+            />
+          </div>
+        ) : null}
+      </div>
+      {dossier.dossier ? (
+        <>
+          <h2 className="panel-title border-y border-hairline px-5 py-3 text-ink">
+            {trouves.length === 0 ? "AUCUNE DISPOSITION" : `${trouves.length} DISPOSITIONS`}
+          </h2>
+          <ul className="min-h-0 flex-1 overflow-y-auto">
+            {trouves.map((f) => {
+              const actif = f.nom === courant;
+              const details = [f.carte, f.decorations === null ? null : `${f.decorations} décorations`]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <li key={f.nom}>
+                  <button
+                    type="button"
+                    aria-current={actif || undefined}
+                    onClick={() => onOuvrir(f.nom)}
+                    className={`flex w-full flex-col gap-1 border-b border-l-2 border-b-hairline px-5 py-3 text-left ${
+                      actif ? "border-l-crimson bg-surface-selected" : "border-l-transparent hover:bg-surface-selected"
+                    }`}
+                  >
+                    <span className="body-compact text-ink">{sansExtension(f.nom)}</span>
+                    {details ? <span className="caption text-ink-muted">{details}</span> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function ListeSortes({
+  sortes,
+  fiches,
+  selection,
+  decorations,
+  onChoisir,
+}: {
+  sortes: ReturnType<typeof sortesDe>;
+  fiches: Map<number, FicheDecoration>;
+  selection: ReadonlySet<number>;
+  decorations: Decoration[];
+  onChoisir: (id: number, ajouter: boolean) => void;
+}) {
+  const choisiesParSorte = new Map<number, number>();
+  for (const d of decorations) {
+    if (selection.has(d.cle)) choisiesParSorte.set(d.id, (choisiesParSorte.get(d.id) ?? 0) + 1);
+  }
+  return (
+    <>
+      <h2 className="panel-title border-b border-hairline px-5 py-3 text-ink">
+        {sortes.length === 0 ? "AUCUNE DÉCORATION" : `${sortes.length} SORTES`}
+      </h2>
+      <ul className="min-h-0 flex-1 overflow-y-auto">
+        {sortes.map((sorte) => {
+          const fiche = fiches.get(sorte.id);
+          const choisies = choisiesParSorte.get(sorte.id) ?? 0;
+          return (
+            <li key={sorte.id}>
+              <button
+                type="button"
+                aria-pressed={choisies === sorte.nombre}
+                onClick={(e) => onChoisir(sorte.id, e.ctrlKey || e.metaKey || e.shiftKey)}
+                className={`flex w-full items-center gap-3 border-b border-hairline px-5 py-2 text-left ${
+                  choisies > 0 ? "bg-surface-selected" : "hover:bg-surface-selected"
+                }`}
+              >
+                <Icone fiche={fiche} />
+                <span className="min-w-0 flex-1 body-compact text-ink">{fiche?.name ?? sorte.nom}</span>
+                <span className="meta text-ink-muted">
+                  {choisies > 0 && choisies < sorte.nombre ? `${choisies} / ${sorte.nombre}` : sorte.nombre}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
 }
 
 /** L'icône de l'API, ou sa place vide de même taille tant qu'elle manque. */
@@ -170,19 +781,120 @@ function Icone({ fiche }: { fiche: FicheDecoration | undefined }) {
   );
 }
 
-function Detail({ decoration, fiche }: { decoration: Decoration; fiche: FicheDecoration | undefined }) {
-  const [x, y, z] = decoration.position;
+/* --- Enregistrer --------------------------------------------------------------- */
+
+/** Le premier nom libre du dossier : le nom lui-même, puis « nom (2) »,
+ *  « nom (3) »… */
+function nomLibre(base: string, fichiers: FichierDisposition[]): string {
+  const pris = new Set(fichiers.map((f) => f.nom.toLocaleLowerCase("fr-FR")));
+  const libre = (nom: string) => !pris.has(nomDeFichier(nom).toLocaleLowerCase("fr-FR"));
+  if (libre(base)) return base;
+  for (let n = 2; ; n++) {
+    if (libre(`${base} (${n})`)) return `${base} (${n})`;
+  }
+}
+
+/** Par défaut, un nouveau fichier : on ne perd pas l'original sans l'avoir
+ *  demandé. Remplacer ne s'offre que pour une disposition lue dans le
+ *  dossier. */
+function ModaleEnregistrer({
+  ouverte,
+  dossier,
+  onEnregistrer,
+  onFermer,
+}: {
+  ouverte: Ouverte;
+  dossier: Dossier;
+  onEnregistrer: (nom: string, remplacer: boolean) => Promise<void>;
+  onFermer: () => void;
+}) {
+  const [remplacer, setRemplacer] = useState(false);
+  const [nom, setNom] = useState(() => nomLibre(ouverte.nom, dossier.fichiers));
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const peutRemplacer = ouverte.fichier !== null;
+  const nomVide = !remplacer && nom.trim().replace(/\.xml$/i, "").trim() === "";
+
+  async function soumettre(evenement?: FormEvent) {
+    evenement?.preventDefault();
+    if (!dossier.dossier || nomVide || enCours) return;
+    setEnCours(true);
+    setErreur(null);
+    try {
+      await onEnregistrer(remplacer && ouverte.fichier ? ouverte.fichier : nomDeFichier(nom), remplacer);
+    } catch (cause) {
+      setErreur(phrase(cause, "La disposition ne s'enregistre pas."));
+      setEnCours(false);
+    }
+  }
+
   return (
-    <div className="absolute top-4 left-4 flex max-w-[360px] items-start gap-3 border border-rule bg-surface p-4">
-      <Icone fiche={fiche} />
-      <div className="min-w-0">
-        <p className="body-compact text-ink">{fiche?.name ?? decoration.nom}</p>
-        <p className="caption text-ink-muted">
-          n° {decoration.id} · x {Math.round(x)} · y {Math.round(y)} · z {Math.round(z)} · échelle{" "}
-          {decoration.echelle.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}
-        </p>
-      </div>
-    </div>
+    <Modale
+      titre="ENREGISTRER"
+      onFermer={onFermer}
+      actions={
+        <>
+          <Button type="button" variant="quiet" onClick={onFermer}>
+            ANNULER
+          </Button>
+          <Button type="button" disabled={!dossier.dossier || nomVide || enCours} onClick={() => void soumettre()}>
+            {enCours ? "ENREGISTREMENT…" : "ENREGISTRER"}
+          </Button>
+        </>
+      }
+    >
+      <ChampDossier dossier={dossier} />
+      <form onSubmit={(e) => void soumettre(e)} className="flex flex-col gap-3">
+        <fieldset className="flex flex-col gap-3 border-0">
+          <legend className="sr-only">Où l'enregistrer</legend>
+          <label
+            className={`flex flex-col gap-3 border px-4 py-3 ${!remplacer ? "border-gold bg-surface-selected" : "border-hairline"}`}
+          >
+            <span className="flex items-center gap-3 body-compact text-ink">
+              <input
+                type="radio"
+                name="mode"
+                checked={!remplacer}
+                onChange={() => setRemplacer(false)}
+                className="size-[18px] accent-[var(--crimson)]"
+              />
+              Nouveau fichier
+            </span>
+            <span className="flex items-center gap-2 pl-[30px]">
+              <Input
+                aria-label="Nom du fichier"
+                value={nom}
+                disabled={remplacer}
+                onChange={(e) => setNom(e.target.value)}
+                className="min-w-0 flex-1"
+              />
+              <span className="body-compact text-ink-muted">.xml</span>
+            </span>
+          </label>
+          {peutRemplacer ? (
+            <label
+              className={`flex items-center gap-3 border px-4 py-3 body-compact text-ink ${
+                remplacer ? "border-gold bg-surface-selected" : "border-hairline"
+              }`}
+            >
+              <input
+                type="radio"
+                name="mode"
+                checked={remplacer}
+                onChange={() => setRemplacer(true)}
+                className="size-[18px] accent-[var(--crimson)]"
+              />
+              {`Remplacer ${ouverte.fichier}`}
+            </label>
+          ) : null}
+        </fieldset>
+        {erreur ? (
+          <p role="alert" className="caption text-crimson-ink">
+            {erreur}
+          </p>
+        ) : null}
+      </form>
+    </Modale>
   );
 }
 

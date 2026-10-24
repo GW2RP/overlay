@@ -19,9 +19,10 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
  */
 
 export type Decoration = {
-  /** Sa place dans le fichier : deux décorations identiques posées au même
-   *  endroit restent deux. */
-  index: number;
+  /** Son identité dans l'éditeur, donnée à la lecture ou à l'ajout et jamais
+   *  reprise : deux décorations identiques posées au même endroit restent
+   *  deux, et l'ordre du fichier peut changer sans qu'elles se confondent. */
+  cle: number;
   id: number;
   nom: string;
   position: [number, number, number];
@@ -33,8 +34,19 @@ export type Disposition = {
   /** `null` quand le fichier ne la nomme pas : on ne lui en invente pas. */
   carteId: number | null;
   carteNom: string;
+  /** Les attributs de l'en-tête tels qu'écrits, réécrits tels quels à
+   *  l'export : ce que l'éditeur ne comprend pas, il ne le change pas. */
+  entete: { version: string; mapId: string; mapName: string; type: string };
   decorations: Decoration[];
 };
+
+/** Les clés se donnent à la suite, pour toute la session : une décoration
+ *  ajoutée ne reprend jamais la clé d'une autre, retirée ou non. */
+let derniereCle = 0;
+export function nouvelleCle(): number {
+  derniereCle += 1;
+  return derniereCle;
+}
 
 export class ErreurDisposition extends Error {}
 
@@ -58,14 +70,14 @@ export function lireDisposition(texte: string): Disposition {
     throw new ErreurDisposition("Ce fichier n'est pas une disposition de pavillon exportée du jeu.");
   }
 
-  const decorations = Array.from(racine.getElementsByTagName("prop")).map((prop, index) => {
+  const decorations = Array.from(racine.getElementsByTagName("prop")).map((prop, index): Decoration => {
     const id = Number(prop.getAttribute("id"));
     if (!Number.isInteger(id) || id <= 0) {
       throw new ErreurDisposition(`La décoration n° ${index + 1} n'a pas d'identifiant.`);
     }
     const echelle = Number(prop.getAttribute("scl") ?? "1");
     return {
-      index,
+      cle: nouvelleCle(),
       id,
       nom: prop.getAttribute("name") ?? "",
       position: triplet(prop.getAttribute("pos"), "position", index),
@@ -77,17 +89,73 @@ export function lireDisposition(texte: string): Disposition {
   return {
     carteId: Number(racine.getAttribute("mapId")) || null,
     carteNom: racine.getAttribute("mapName") ?? "",
+    entete: {
+      version: racine.getAttribute("version") ?? "1",
+      mapId: racine.getAttribute("mapId") ?? "",
+      mapName: racine.getAttribute("mapName") ?? "",
+      type: racine.getAttribute("type") ?? "0",
+    },
     decorations,
   };
+}
+
+/* --- L'écriture ---------------------------------------------------------------- */
+
+/** Le jeu échelonne par 252e : chaque échelle de ses exports en est un
+ *  multiple entier (0,214286 = 54/252, 2,003968 = 505/252). */
+export const PAS_ECHELLE = 1 / 252;
+
+export function arrondirEchelle(echelle: number): number {
+  return Math.max(1, Math.round(echelle / PAS_ECHELLE)) * PAS_ECHELLE;
+}
+
+const TOUR = 2 * Math.PI;
+
+/** Un angle ramené dans [0, 2π), comme le jeu les écrit. Ce qui s'écrirait
+ *  6,283185 à six décimales est un tour complet, donc zéro. */
+export function normaliserAngle(angle: number): number {
+  const ramene = ((angle % TOUR) + TOUR) % TOUR;
+  return ramene >= TOUR - 5e-7 ? 0 : ramene;
+}
+
+function attribut(valeur: string): string {
+  return valeur
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Six décimales, comme le jeu, et jamais « -0.000000 ». */
+function nombre(valeur: number): string {
+  const texte = valeur.toFixed(6);
+  return texte === "-0.000000" ? "0.000000" : texte;
+}
+
+/** La disposition au gabarit du jeu : en-tête XML, quatre espaces, six
+ *  décimales, fin de ligne Unix. Un fichier lu puis réécrit sans retouche
+ *  ressort à l'octet près. */
+export function ecrireDisposition(disposition: Disposition): string {
+  const { version, mapId, mapName, type } = disposition.entete;
+  const lignes = [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<Decorations version="${attribut(version)}" mapId="${attribut(mapId)}" mapName="${attribut(mapName)}" type="${attribut(type)}">`,
+    ...disposition.decorations.map(
+      (d) =>
+        `    <prop id="${d.id}" name="${attribut(d.nom)}" pos="${d.position.map(nombre).join(" ")}" rot="${d.rotation.map(nombre).join(" ")}" scl="${nombre(d.echelle)}"/>`,
+    ),
+    `</Decorations>`,
+  ];
+  return `${lignes.join("\n")}\n`;
 }
 
 /** Les décorations d'une disposition, une ligne par sorte, les plus nombreuses
  *  d'abord. */
 export type Sorte = { id: number; nom: string; nombre: number };
 
-export function sortesDe(disposition: Disposition): Sorte[] {
+export function sortesDe(decorations: Decoration[]): Sorte[] {
   const parId = new Map<number, Sorte>();
-  for (const decoration of disposition.decorations) {
+  for (const decoration of decorations) {
     const sorte = parId.get(decoration.id);
     if (sorte) sorte.nombre += 1;
     else parId.set(decoration.id, { id: decoration.id, nom: decoration.nom, nombre: 1 });
@@ -102,6 +170,35 @@ export function sortesDe(disposition: Disposition): Sorte[] {
 const API_GW2 = "https://api.guildwars2.com/v2";
 /** L'API refuse plus de deux cents identifiants par requête. */
 const PAR_REQUETE = 200;
+
+/** Toutes les décorations que l'API connaît, pour le catalogue : la liste
+ *  des identifiants, puis leurs fiches par lots. */
+export async function lireCatalogue(): Promise<FicheDecoration[]> {
+  const reponse = await tauriFetch(`${API_GW2}/homestead/decorations`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!reponse.ok) {
+    throw new Error(`L'API du jeu ne liste pas les décorations (HTTP ${reponse.status}).`);
+  }
+  const ids = (await reponse.json()) as number[];
+  return [...(await lireFiches(ids)).values()];
+}
+
+export type Categorie = { id: number; name: string };
+
+let categories: Categorie[] | null = null;
+
+export async function lireCategories(): Promise<Categorie[]> {
+  if (categories) return categories;
+  const reponse = await tauriFetch(`${API_GW2}/homestead/decorations/categories?ids=all&lang=fr`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!reponse.ok) {
+    throw new Error(`L'API du jeu ne décrit pas les catégories (HTTP ${reponse.status}).`);
+  }
+  categories = ((await reponse.json()) as Categorie[]).map(({ id, name }) => ({ id, name }));
+  return categories;
+}
 
 export type FicheDecoration = {
   id: number;

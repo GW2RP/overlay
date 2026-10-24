@@ -274,6 +274,37 @@ elle ne naît qu'à la première demande (`create: false`, construite par
 `ouvrir_pavillon`) : née cachée au démarrage, elle rouvrirait l'archive à
 chaque lancement sans qu'on ait rien demandé.
 
+**On l'y corrige, et on l'enregistre.** Les dispositions vivent dans un
+dossier choisi (`dossierDispositions`) — à défaut `Documents\Guild Wars
+2\Homesteads`, que le système situe, sous OneDrive compris : il change d'une
+machine à l'autre. Rust seul y touche (`src-tauri/src/dispositions.rs`) : des
+`.xml`, un **nom de fichier** et jamais un chemin, et pour la fenêtre `pavillon`
+seulement. Les boîtes de dossier et d'enregistrement s'ouvrent depuis Rust — le
+greffon `dialog` en crate seul, sans paquet npm ni permission au front —, donc
+l'export est la seule écriture hors du dossier, et son chemin sort de la boîte
+du système. Enregistrer écrit par défaut un **nouveau** fichier, qui n'en écrase
+aucun ; remplacer l'original se choisit, et passe par un fichier voisin renommé
+par-dessus.
+
+**L'écriture rend l'octet** : `ecrireDisposition` reprend l'en-tête lu tel
+quel et écrit chaque prop au gabarit du jeu — quatre espaces, six décimales,
+`\n`. Une disposition lue puis enregistrée sans retouche ressort identique, et
+c'est ce qui garantit que l'éditeur ne change que ce qu'on a touché. L'échelle
+va par **252e** (`PAS_ECHELLE`) : chaque échelle des exports du jeu en est un
+multiple entier, ce que 1/63 ne tient pas (2,003968 = 505/252). Un angle
+s'écrit dans [0, 2π).
+
+**Une décoration a une clé** (`cle`), donnée à la lecture ou à l'ajout et
+jamais reprise : sélection, inspecteur et scène s'y accrochent, pas au rang dans
+le fichier, qui bouge avec un retrait. Chaque geste pose une nouvelle liste
+(`useHistorique`) et « annuler » rend la précédente. Un **déplacement** n'ajoute
+que la translation — angles et échelle restent ceux du fichier, au chiffre
+près —, une rotation ou une échelle repasse par `decomposer`, l'inverse exact de
+`matriceDe`. Les poignées tiennent un pivot au centre de la sélection : pendant
+le glissé la scène suit seule, et le geste ne remonte qu'au relâché. La caméra
+se cadre à l'ouverture d'une disposition (`cadrage`), jamais après un geste.
+Une décoration ajoutée se pose au point que la vue regarde, ramené au sol.
+
 Un fichier dont une décoration est illisible **se refuse entier** : en sauter
 une montrerait un pavillon qui n'est pas le sien. `pos` est en pouces dans le
 repère de la carte, z vers le **bas** ; `rot` en radians. La convention des
@@ -315,8 +346,8 @@ modèle en OBJ pour le regarder ailleurs.
 
 ## Frontières
 
-- `src-tauri/**` ne connaît ni le hub ni l'API du jeu : il lit le lien et
-  l'archive, tient les fenêtres, et c'est tout. Les requêtes réseau partent du front, par le
+- `src-tauri/**` ne connaît ni le hub ni l'API du jeu : il lit le lien,
+  l'archive et le dossier des dispositions, tient les fenêtres, et c'est tout. Les requêtes réseau partent du front, par le
   greffon `http`, sous la capacité qui les borne.
 - Le vocabulaire du hub (`src/lib/domaine.ts`) recopie ses valeurs et ses
   libellés ; une valeur inconnue s'affiche telle quelle plutôt que de faire
