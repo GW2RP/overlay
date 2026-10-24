@@ -33,6 +33,7 @@ import {
   lireDisposition,
   lireFiches,
   lireModele,
+  lireTexture,
   nouvelleCle,
   ouvrirArchive,
   sortesDe,
@@ -41,6 +42,7 @@ import {
   type EtatArchive,
   type FicheDecoration,
   type Maillage,
+  type TextureLue,
 } from "@/lib/pavillon";
 import { ecrireArchive, lireArchive } from "@/lib/reglages";
 
@@ -123,6 +125,7 @@ export function FenetrePavillon() {
   const fiches = useFiches(ids);
   const archive = useArchive();
   const modeles = useModeles(ids, archive.ouverte);
+  const textures = useTextures(modeles, archive.ouverte);
 
   // Une annulation peut retirer une décoration choisie : la sélection ne
   // garde que celles qui existent encore.
@@ -483,6 +486,7 @@ export function FenetrePavillon() {
                   cadrage={cadrage}
                   decorations={decorations}
                   modeles={modeles}
+                  textures={textures}
                   selection={selection}
                   outil={outil}
                   pasPosition={pas}
@@ -990,6 +994,7 @@ function useArchive(): Archive {
       .then((etat) => {
         // Rouverte, l'archive a pu être mise à jour : ses modèles se relisent.
         modelesLus.delete(etat.chemin);
+        texturesLues.delete(etat.chemin);
         setOuverte(etat);
         indice.current = etat.paquet;
         return ecrireArchive({ chemin: etat.chemin, paquet: etat.paquet });
@@ -1127,3 +1132,74 @@ function useModeles(ids: number[], archive: EtatArchive | null): Map<number, Mai
 }
 
 const VIDE = new Map<number, Maillage[]>();
+
+/** Les textures déjà lues, par archive puis par fichier ; `null` pour une
+ *  texture qui ne se lit pas, qu'on ne redemande pas. */
+const texturesLues = new Map<string, Map<number, TextureLue | null>>();
+
+/** Les textures des modèles lus, au fil des lectures comme les modèles.
+ *  Chaque fichier ne se demande qu'une fois : plusieurs sortes partagent la
+ *  même écorce. */
+function useTextures(
+  modeles: Map<number, Maillage[]>,
+  archive: EtatArchive | null,
+): Map<number, TextureLue | null> {
+  const [textures, setTextures] = useState<Map<number, TextureLue | null>>(new Map());
+  const ouverte = archive?.chemin ?? null;
+  const voulues = [
+    ...new Set(
+      [...modeles.values()].flatMap((maillages) =>
+        maillages.flatMap((m) => (m.texture === null ? [] : [m.texture])),
+      ),
+    ),
+  ].sort((a, b) => a - b);
+  const cle = voulues.join(",");
+
+  useEffect(() => {
+    if (!cle || !ouverte) return;
+    let parti = false;
+    let lues = texturesLues.get(ouverte);
+    if (!lues) {
+      lues = new Map();
+      texturesLues.set(ouverte, lues);
+    }
+    const memoire = lues;
+    const fichiers = cle.split(",").map(Number);
+    const presentes = () =>
+      new Map(fichiers.flatMap((f) => (memoire.has(f) ? [[f, memoire.get(f) ?? null]] : [])));
+    const restantes = fichiers.filter((f) => !memoire.has(f));
+
+    let enAttente = false;
+    const publier = () => {
+      if (enAttente) return;
+      enAttente = true;
+      requestAnimationFrame(() => {
+        enAttente = false;
+        if (!parti) setTextures(presentes());
+      });
+    };
+
+    const suivante = async (): Promise<void> => {
+      const fichier = restantes.shift();
+      if (fichier === undefined || parti) return;
+      try {
+        memoire.set(fichier, await lireTexture(fichier));
+      } catch (cause) {
+        memoire.set(fichier, null);
+        console.error(`la texture ${fichier} ne se lit pas`, cause);
+      }
+      publier();
+      return suivante();
+    };
+    publier();
+    for (let i = 0; i < LECTURES_SIMULTANEES; i++) void suivante();
+
+    return () => {
+      parti = true;
+    };
+  }, [cle, ouverte]);
+
+  return ouverte ? textures : SANS_TEXTURES;
+}
+
+const SANS_TEXTURES = new Map<number, TextureLue | null>();

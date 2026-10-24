@@ -6,10 +6,12 @@
 //! contenu de jeu — et rien de l'interface.
 
 pub mod archive;
+pub mod bc7;
 pub mod contenu;
 pub mod decompression;
 pub mod decorations;
 pub mod modele;
 pub mod pf;
+pub mod texture;
 
 pub use archive::{Archive, ErreurArchive, Fichier};

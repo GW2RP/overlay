@@ -8,13 +8,16 @@ import {
   normaliserAngle,
   type Decoration,
   type Maillage,
+  type TextureLue,
 } from "@/lib/pavillon";
 
 /**
  * Le pavillon en trois dimensions, et ses poignées.
  *
  * Une décoration dont l'archive du jeu a donné le modèle se montre par ce
- * modèle, à son échelle. Les autres — archive pas encore ouverte, modèle en
+ * modèle, à son échelle, et par ses textures de couleur une fois lues ; un
+ * maillage sans texture, ou dont la texture est en route, prend l'or des
+ * jetons. Les autres — archive pas encore ouverte, modèle en
  * route ou introuvable — se montrent par un **repère** : un cube de côté
  * fixe, d'une autre couleur, à sa place, tourné comme elle, avec une arête qui
  * dit où est son avant. Le repère ne prétend pas à sa taille, et l'échelle du
@@ -86,36 +89,60 @@ function versJeu(point: THREE.Vector3): [number, number, number] {
 }
 
 /** Les maillages d'un modèle en une géométrie, passée dans le repère de
- *  three.js. La symétrie retourne les faces : l'ordre des sommets de chaque
- *  triangle s'inverse avec elle. */
+ *  three.js, un groupe par maillage. La symétrie retourne les faces : l'ordre
+ *  des sommets de chaque triangle s'inverse avec elle. Les sommets d'un
+ *  maillage sans texture ont des coordonnées nulles, que rien ne lit. */
 function geometrieDe(maillages: Maillage[]): THREE.BufferGeometry {
   const sommets = maillages.reduce((n, m) => n + m.positions.length / 3, 0);
   const index = maillages.reduce((n, m) => n + m.triangles.length, 0);
   const positions = new Float32Array(sommets * 3);
+  const uv = new Float32Array(sommets * 2);
   const triangles = new Uint32Array(index);
+  const geometrie = new THREE.BufferGeometry();
   let s = 0;
   let t = 0;
-  for (const maillage of maillages) {
+  maillages.forEach((maillage, rang) => {
     const base = s;
+    if (maillage.uv) uv.set(maillage.uv, base * 2);
     for (let i = 0; i < maillage.positions.length; i += 3) {
       positions[s * 3] = maillage.positions[i];
       positions[s * 3 + 1] = -maillage.positions[i + 2];
       positions[s * 3 + 2] = -maillage.positions[i + 1];
       s += 1;
     }
+    geometrie.addGroup(t, maillage.triangles.length, rang);
     for (let i = 0; i < maillage.triangles.length; i += 3) {
       triangles[t] = base + maillage.triangles[i + 2];
       triangles[t + 1] = base + maillage.triangles[i + 1];
       triangles[t + 2] = base + maillage.triangles[i];
       t += 3;
     }
-  }
-  const geometrie = new THREE.BufferGeometry();
+  });
   geometrie.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometrie.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
   geometrie.setIndex(new THREE.BufferAttribute(triangles, 1));
   geometrie.computeVertexNormals();
   return geometrie;
 }
+
+/** Une texture lue, prête pour la carte graphique. Les coordonnées du jeu
+ *  comptent depuis la ligne du haut, celle que la texture donne en premier :
+ *  rien ne se retourne. */
+function textureDe(lue: TextureLue): THREE.DataTexture {
+  const texture = new THREE.DataTexture(lue.pixels, lue.largeur, lue.hauteur, THREE.RGBAFormat);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/** Sous ce seuil d'alpha, le pixel d'une texture découpée ne se dessine pas :
+ *  la moitié, pour que le bord d'une feuille ne se dilue ni ne s'épaississe. */
+const SEUIL_DECOUPE = 0.5;
 
 /** Une couleur des jetons, lue sur la page : la scène suit le thème comme le
  *  reste de l'écran. */
@@ -151,8 +178,14 @@ type Monde = {
   sortes: THREE.Group;
   /** L'avant des repères. */
   traits: THREE.Group;
-  /** Un matériau pour toutes : la couleur est portée par chaque instance. */
+  /** Le matériau des repères : la couleur est portée par chaque instance. */
   materiau: THREE.MeshLambertMaterial;
+  /** Le matériau des maillages sans texture, à la couleur des modèles ;
+   *  l'instance n'y ajoute que la sélection. */
+  materiauNu: THREE.MeshLambertMaterial;
+  /** Un matériau par texture, gardé tant que la scène vit : plusieurs
+   *  sortes partagent la même écorce. */
+  materiauxTextures: Map<number, THREE.MeshLambertMaterial>;
   /** Une géométrie par sorte, gardée d'un geste à l'autre : un mur de
    *  quatorze mille sommets ne se recalcule pas à chaque déplacement. */
   geometries: Map<number, { source: Maillage[] | null; geometrie: THREE.BufferGeometry }>;
@@ -174,6 +207,9 @@ type Props = {
   /** Les modèles déjà lus, par sorte ; une liste vide pour une sorte sans
    *  modèle. Une sorte absente attend le sien. */
   modeles: Map<number, Maillage[]>;
+  /** Les textures déjà lues, par fichier ; `null` pour une texture qui ne se
+   *  lit pas. Un maillage dont la texture manque prend l'or des modèles. */
+  textures: Map<number, TextureLue | null>;
   /** Les clés des décorations choisies : elles s'allument, et les poignées
    *  se posent au milieu d'elles. */
   selection: ReadonlySet<number>;
@@ -195,6 +231,7 @@ export function ScenePavillon({
   cadrage,
   decorations,
   modeles,
+  textures,
   selection,
   outil,
   pasPosition,
@@ -413,6 +450,8 @@ export function ScenePavillon({
     rendu.domElement.addEventListener("pointerup", surRelache);
 
     const materiau = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
+    const materiauNu = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
+    const materiauxTextures: Monde["materiauxTextures"] = new Map();
     const geometries: Monde["geometries"] = new Map();
     monde.current = {
       poignees,
@@ -421,6 +460,8 @@ export function ScenePavillon({
       sortes,
       traits,
       materiau,
+      materiauNu,
+      materiauxTextures,
       geometries,
       places: new Map(),
     };
@@ -438,6 +479,11 @@ export function ScenePavillon({
       vider(traits);
       geometries.forEach(({ geometrie }) => geometrie.dispose());
       materiau.dispose();
+      materiauNu.dispose();
+      materiauxTextures.forEach((m) => {
+        m.map?.dispose();
+        m.dispose();
+      });
       grille.geometry.dispose();
       [grille.material].flat().forEach((m) => m.dispose());
       poignees.detach();
@@ -498,7 +544,8 @@ export function ScenePavillon({
         m.geometries.set(id, gardee);
       }
       const aUnModele = source !== null;
-      const instances = new THREE.InstancedMesh(gardee.geometrie, m.materiau, membres.length);
+      const materiaux = source ? source.map((maillage) => materiauDe(m, maillage, textures)) : m.materiau;
+      const instances = new THREE.InstancedMesh(gardee.geometrie, materiaux, membres.length);
       instances.userData = { decorations: membres };
       membres.forEach((decoration, rang) => {
         instances.setMatrixAt(rang, matriceDe(decoration, aUnModele));
@@ -527,7 +574,7 @@ export function ScenePavillon({
         m.geometries.delete(id);
       }
     }
-  }, [decorations, modeles, cadrage, rattrapage]);
+  }, [decorations, modeles, textures, cadrage, rattrapage]);
 
   // Les couleurs et les poignées : la sélection s'allume, et le pivot se pose
   // au milieu d'elle.
@@ -538,7 +585,10 @@ export function ScenePavillon({
       differee.current = true;
       return;
     }
-    const couleurModele = jeton("--gold");
+    // La couleur d'un modèle est celle de ses textures, ou l'or de son
+    // matériau nu : l'instance n'y met que la sélection.
+    m.materiauNu.color.copy(jeton("--gold"));
+    const couleurModele = new THREE.Color(1, 1, 1);
     const couleurRepere = jeton("--rain");
     const couleurChoisie = jeton("--crimson");
     const centre = new THREE.Vector3();
@@ -567,7 +617,7 @@ export function ScenePavillon({
       m.poignees.detach();
     }
     m.rendre();
-  }, [selection, decorations, modeles, cadrage, rattrapage]);
+  }, [selection, decorations, modeles, textures, cadrage, rattrapage]);
 
   // L'outil et son pas.
   useEffect(() => {
@@ -581,6 +631,30 @@ export function ScenePavillon({
   }, [outil, pasAngle, cadrage]);
 
   return <div ref={conteneur} className="size-full min-h-0" />;
+}
+
+/** Le matériau d'un maillage : celui de sa texture si elle est lue, le
+ *  matériau nu sinon. */
+function materiauDe(
+  m: Monde,
+  maillage: Maillage,
+  textures: Map<number, TextureLue | null>,
+): THREE.Material {
+  const fichier = maillage.texture;
+  const lue = fichier === null ? undefined : textures.get(fichier);
+  if (fichier === null || !lue) return m.materiauNu;
+  let materiau = m.materiauxTextures.get(fichier);
+  if (!materiau) {
+    materiau = new THREE.MeshLambertMaterial({
+      side: THREE.DoubleSide,
+      map: textureDe(lue),
+      // L'alpha d'une texture qui ne découpe rien porte autre chose — un
+      // reflet — et ne se lit pas comme une transparence.
+      alphaTest: lue.decoupee ? SEUIL_DECOUPE : 0,
+    });
+    m.materiauxTextures.set(fichier, materiau);
+  }
+  return materiau;
 }
 
 /** Les couleurs posées par `setColorAt` partent au prochain rendu. */

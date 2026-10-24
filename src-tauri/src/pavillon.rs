@@ -7,7 +7,9 @@
 //!
 //! Un modèle voyage vers le front en binaire (`ipc::Response`), pas en JSON :
 //! un mur de l'académie compte quatorze mille sommets, et leurs flottants
-//! écrits en texte pèseraient le triple.
+//! écrits en texte pèseraient le triple. Ses textures suivent à part, une
+//! demande chacune : plusieurs décorations partagent la même écorce, et le
+//! front ne la demande qu'une fois.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -15,6 +17,7 @@ use std::time::SystemTime;
 
 use archive_gw2::decorations::{indexer, trouver_le_contenu};
 use archive_gw2::modele::lire_modele;
+use archive_gw2::texture::Texture;
 use archive_gw2::Archive;
 use serde::Serialize;
 use tauri::ipc::Response;
@@ -45,6 +48,11 @@ pub struct EtatArchive {
 }
 
 type Empreinte = (u64, Option<SystemTime>);
+
+/// Le plus grand côté d'une texture rendue : le niveau de détail en dessous.
+/// Une décoration se regarde de loin dans l'éditeur, et une texture de 512
+/// pixels de côté pèse déjà un mégaoctet une fois décodée.
+const COTE_MAX_TEXTURE: u16 = 512;
 
 fn empreinte(chemin: &str) -> Option<Empreinte> {
     let meta = std::fs::metadata(chemin).ok()?;
@@ -106,20 +114,29 @@ pub async fn ouvrir_archive(
     Ok(reponse)
 }
 
+/// L'archive ouverte, si elle n'a pas changé depuis.
+fn ouverte(etat: &State<'_, Pavillon>) -> Result<Arc<Bibliotheque>, String> {
+    let ouverte = bibliotheque(etat)?.ok_or("aucune archive ouverte")?;
+    if empreinte(&ouverte.chemin) != Some(ouverte.empreinte) {
+        return Err("l'archive a changé depuis son ouverture : rouvrez-la".to_string());
+    }
+    Ok(ouverte)
+}
+
 /// Le modèle d'une décoration, en binaire petit-boutiste :
 ///
 /// ```text
 /// u32 nombre de maillages
-/// pour chacun : u32 sommets, u32 index, f32 × 3 × sommets, u32 × index
+/// pour chacun : u32 sommets, u32 index, u32 texture (0 : aucune),
+///               f32 × 3 × sommets, f32 × 2 × sommets si texture, u32 × index
 /// ```
 ///
-/// Zéro maillage : la décoration n'a pas de modèle que l'on sache lire.
+/// Zéro maillage : la décoration n'a pas de modèle que l'on sache lire. La
+/// texture est le fichier à demander à `texture_decoration`, et les
+/// coordonnées qui la posent ne voyagent qu'avec elle.
 #[tauri::command]
 pub async fn modele_decoration(etat: State<'_, Pavillon>, id: u32) -> Result<Response, String> {
-    let ouverte = bibliotheque(&etat)?.ok_or("aucune archive ouverte")?;
-    if empreinte(&ouverte.chemin) != Some(ouverte.empreinte) {
-        return Err("l'archive a changé depuis son ouverture : rouvrez-la".to_string());
-    }
+    let ouverte = ouverte(&etat)?;
     let octets = tauri::async_runtime::spawn_blocking(move || {
         let maillages = match ouverte.modeles.get(&id) {
             Some(&fichier) => {
@@ -134,20 +151,59 @@ pub async fn modele_decoration(etat: State<'_, Pavillon>, id: u32) -> Result<Res
 
         let taille: usize = maillages
             .iter()
-            .map(|m| 8 + m.positions.len() * 4 + m.triangles.len() * 4)
+            .map(|m| 12 + m.positions.len() * 4 + m.uv.len() * 4 + m.triangles.len() * 4)
             .sum();
         let mut sortie = Vec::with_capacity(4 + taille);
         sortie.extend((maillages.len() as u32).to_le_bytes());
         for maillage in &maillages {
             sortie.extend(((maillage.positions.len() / 3) as u32).to_le_bytes());
             sortie.extend((maillage.triangles.len() as u32).to_le_bytes());
+            sortie.extend(maillage.texture.unwrap_or(0).to_le_bytes());
             for valeur in &maillage.positions {
                 sortie.extend(valeur.to_le_bytes());
+            }
+            if maillage.texture.is_some() {
+                for valeur in &maillage.uv {
+                    sortie.extend(valeur.to_le_bytes());
+                }
             }
             for index in &maillage.triangles {
                 sortie.extend(index.to_le_bytes());
             }
         }
+        Ok::<_, String>(sortie)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(Response::new(octets))
+}
+
+/// Une texture, décodée, en binaire petit-boutiste :
+///
+/// ```text
+/// u32 largeur, u32 hauteur, u32 découpée (0 ou 1), u8 × 4 × largeur × hauteur
+/// ```
+///
+/// Les pixels sont en RGBA, ligne du haut d'abord, au plus grand niveau de
+/// détail qui tienne dans `COTE_MAX_TEXTURE`. Découpée : l'alpha de l'image
+/// découpe sa forme, et le rendu doit en tenir compte.
+#[tauri::command]
+pub async fn texture_decoration(
+    etat: State<'_, Pavillon>,
+    fichier: u32,
+) -> Result<Response, String> {
+    let ouverte = ouverte(&etat)?;
+    let octets = tauri::async_runtime::spawn_blocking(move || {
+        let octets = ouverte.archive.lire(fichier).map_err(|e| e.to_string())?;
+        let texture = Texture::lire(&octets).map_err(|e| format!("fichier {fichier} : {e}"))?;
+        let image = texture
+            .decoder(texture.niveau_au_plus(COTE_MAX_TEXTURE))
+            .map_err(|e| format!("fichier {fichier} : {e}"))?;
+        let mut sortie = Vec::with_capacity(12 + image.rgba.len());
+        sortie.extend(image.largeur.to_le_bytes());
+        sortie.extend(image.hauteur.to_le_bytes());
+        sortie.extend(u32::from(image.decoupee).to_le_bytes());
+        sortie.extend(image.rgba);
         Ok::<_, String>(sortie)
     })
     .await
