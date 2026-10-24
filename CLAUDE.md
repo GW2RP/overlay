@@ -346,12 +346,27 @@ d'allocation emporte toute l'application, éléments compris.
 
 Une décoration sans modèle lisible reste un **repère** à sa place et à sa
 taille de repère : on voit qu'elle est là, sans lui inventer de forme.
-Seule la géométrie se lit pour l'instant : pas de texture, et les plans de
-feuillage d'un arbre ressortent en facettes pleines.
+
+**Un maillage porte la texture de couleur de son matériau**, celle dont le
+jeton vaut `0x67531924` dans le bloc `MODL` (versions 65 à 70) ; sans elle,
+ou tant qu'elle est en route, il prend l'or des jetons — on ne lui prête pas
+la première texture venue. Une texture voyage **à part**
+(`texture_decoration`), une demande par fichier : plusieurs sortes partagent
+la même écorce. Elle se décode côté Rust (`texture.rs`, `bc7.rs`) — la
+compression des blocs du jeu, puis DXT1, DXT3, DXT5, DXTL et BC7 — et descend
+en RGBA, au plus grand niveau de détail qui tienne dans 512 pixels de côté.
+L'alpha d'une texture de couleur **ne dit pas toujours la transparence** :
+la pierre et l'écorce y rangent un reflet, jamais nul. Elle ne découpe sa
+forme que si un vingtième de ses pixels au moins est transparent
+(`decoupee`) ; un seul pixel ne suffit pas, sinon une pierre se trouerait.
+Le sommet se lit à la disposition que dicte son `fvf` — la position
+compressée vient **après** les coordonnées de texture, pas en tête —, et un
+sommet qui ne pèse pas ce qu'elle annonce ne livre que sa position.
 
 `examples/decouverte.rs` est l'outil qui a trouvé ces décalages — à reprendre
-après une mise à jour qui les casserait — et `examples/modeles.rs` écrit un
-modèle en OBJ pour le regarder ailleurs.
+après une mise à jour qui les casserait —, `examples/modeles.rs` écrit un
+modèle en OBJ pour le regarder ailleurs, et `examples/textures.rs` relève les
+formats de texture des décorations et en écrit quelques-unes en TGA.
 
 ## Le serveur MCP de l'éditeur
 

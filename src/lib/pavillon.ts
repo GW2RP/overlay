@@ -262,8 +262,16 @@ export function ouvrirArchive(chemin: string, indice: number | null): Promise<Et
   return invoke<EtatArchive>("ouvrir_archive", { chemin, indice });
 }
 
-/** Un maillage, dans le repère du jeu : x, y, z à la suite, z vers le bas. */
-export type Maillage = { positions: Float32Array; triangles: Uint32Array };
+/** Un maillage, dans le repère du jeu : x, y, z à la suite, z vers le bas.
+ *  `texture` est le fichier de sa texture de couleur, à demander à
+ *  `lireTexture`, et `uv` ses coordonnées ; sans texture, ni l'un ni
+ *  l'autre. */
+export type Maillage = {
+  positions: Float32Array;
+  triangles: Uint32Array;
+  texture: number | null;
+  uv: Float32Array | null;
+};
 
 /** Le modèle d'une décoration, ou une liste vide si elle n'en a pas que
  *  l'archive sache donner. Voir `modele_decoration` pour le format. */
@@ -276,18 +284,45 @@ export async function lireModele(id: number): Promise<Maillage[]> {
     curseur += 4;
     return valeur;
   };
+  // Copiés : le tampon reçu n'est pas forcément aligné sur quatre octets.
+  const flottants = (n: number) => {
+    const valeurs = new Float32Array(tampon.slice(curseur, curseur + n * 4));
+    curseur += n * 4;
+    return valeurs;
+  };
 
   const maillages: Maillage[] = [];
   const nombre = u32();
   for (let i = 0; i < nombre; i++) {
     const sommets = u32();
     const index = u32();
-    // Copiés : le tampon reçu n'est pas forcément aligné sur quatre octets.
-    const positions = new Float32Array(tampon.slice(curseur, curseur + sommets * 12));
-    curseur += sommets * 12;
+    const texture = u32() || null;
+    const positions = flottants(sommets * 3);
+    const uv = texture ? flottants(sommets * 2) : null;
     const triangles = new Uint32Array(tampon.slice(curseur, curseur + index * 4));
     curseur += index * 4;
-    maillages.push({ positions, triangles });
+    maillages.push({ positions, triangles, texture, uv });
   }
   return maillages;
+}
+
+/** Une texture décodée : RGBA, ligne du haut d'abord. `decoupee` : son alpha
+ *  découpe sa forme (un feuillage), et le rendu doit l'en laisser faire. */
+export type TextureLue = {
+  largeur: number;
+  hauteur: number;
+  decoupee: boolean;
+  pixels: Uint8Array;
+};
+
+/** Une texture de l'archive. Voir `texture_decoration` pour le format. */
+export async function lireTexture(fichier: number): Promise<TextureLue> {
+  const tampon = await invoke<ArrayBuffer>("texture_decoration", { fichier });
+  const vue = new DataView(tampon);
+  return {
+    largeur: vue.getUint32(0, true),
+    hauteur: vue.getUint32(4, true),
+    decoupee: vue.getUint32(8, true) !== 0,
+    pixels: new Uint8Array(tampon, 12),
+  };
 }

@@ -195,6 +195,7 @@ pub fn run() {
             ouvrir_pavillon,
             pavillon::ouvrir_archive,
             pavillon::modele_decoration,
+            pavillon::texture_decoration,
             dispositions::dossier_dispositions,
             dispositions::choisir_dossier,
             dispositions::lister_dispositions,

@@ -45,6 +45,7 @@ import {
   lireDisposition,
   lireFiches,
   lireModele,
+  lireTexture,
   normaliserAngle,
   nouvelleCle,
   ouvrirArchive,
@@ -54,6 +55,7 @@ import {
   type EtatArchive,
   type FicheDecoration,
   type Maillage,
+  type TextureLue,
 } from "@/lib/pavillon";
 import { ecrireArchive, lireArchive } from "@/lib/reglages";
 
@@ -140,6 +142,7 @@ export function FenetrePavillon() {
   const fiches = useFiches(ids);
   const archive = useArchive();
   const { modeles, prets: modelesPrets } = useModeles(ids, archive.ouverte);
+  const textures = useTextures(modeles, archive.ouverte);
 
   // Une annulation peut retirer une décoration choisie : la sélection ne
   // garde que celles qui existent encore.
@@ -832,6 +835,7 @@ export function FenetrePavillon() {
                   cadrage={cadrage}
                   decorations={decorations}
                   modeles={modeles}
+                  textures={textures}
                   selection={selection}
                   outil={outil}
                   pasPosition={pas}
@@ -1501,6 +1505,7 @@ function useArchive(): Archive {
       .then((etat) => {
         // Rouverte, l'archive a pu être mise à jour : ses modèles se relisent.
         modelesLus.delete(etat.chemin);
+        texturesLues.delete(etat.chemin);
         setOuverte(etat);
         indice.current = etat.paquet;
         return ecrireArchive({ chemin: etat.chemin, paquet: etat.paquet });
@@ -1595,6 +1600,8 @@ function useModeles(
   const ouverte = archive?.chemin ?? null;
   const lecture = `${ouverte}|${cle}`;
 
+  // L'effet suit l'archive elle-même, pas son chemin : rouverte au même
+  // endroit après une mise à jour, elle relit ses modèles.
   useEffect(() => {
     if (!cle || !ouverte) return;
     let parti = false;
@@ -1646,10 +1653,108 @@ function useModeles(
     return () => {
       parti = true;
     };
-  }, [cle, ouverte, lecture]);
+    // `archive` change à chaque ouverture, `ouverte` n'en est que le chemin.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cle, archive, lecture]);
 
   // Sans archive, rien n'est en route : les repères sont la vue finale.
   return ouverte ? { modeles, prets: !cle || finie === lecture } : { modeles: VIDE, prets: true };
 }
 
 const VIDE = new Map<number, Maillage[]>();
+
+/** Les textures déjà demandées, par archive puis par fichier ; `null` pour une
+ *  texture qui ne se lit pas, qu'on ne redemande pas. La lecture en cours y
+ *  est déjà : un nouveau lot de modèles relance l'effet, et ne redemande pas
+ *  ce que le précédent attend encore. */
+const texturesLues = new Map<string, Map<number, DemandeTexture>>();
+
+/** Une texture demandée : sa lecture, et ce qu'elle a rendu une fois finie. */
+type DemandeTexture = { lecture: Promise<TextureLue | null>; lue?: TextureLue | null };
+
+/** Les textures des modèles lus, au fil des lectures comme les modèles.
+ *  Chaque fichier ne se demande qu'une fois : plusieurs sortes partagent la
+ *  même écorce. */
+function useTextures(
+  modeles: Map<number, Maillage[]>,
+  archive: EtatArchive | null,
+): Map<number, TextureLue | null> {
+  const [textures, setTextures] = useState<Map<number, TextureLue | null>>(new Map());
+  const ouverte = archive?.chemin ?? null;
+  const voulues = [
+    ...new Set(
+      [...modeles.values()].flatMap((maillages) =>
+        maillages.flatMap((m) => (m.texture === null ? [] : [m.texture])),
+      ),
+    ),
+  ].sort((a, b) => a - b);
+  const cle = voulues.join(",");
+
+  useEffect(() => {
+    if (!cle || !ouverte) return;
+    let parti = false;
+    let lues = texturesLues.get(ouverte);
+    if (!lues) {
+      lues = new Map();
+      texturesLues.set(ouverte, lues);
+    }
+    const memoire = lues;
+    const fichiers = cle.split(",").map(Number);
+    // Ce qui est déjà lu se montre tout de suite : attendre une lecture en
+    // cours le rendrait à l'or le temps d'une image.
+    const presentes = new Map<number, TextureLue | null>(
+      fichiers.flatMap((f) => {
+        const demande = memoire.get(f);
+        return demande && demande.lue !== undefined ? [[f, demande.lue]] : [];
+      }),
+    );
+
+    let enAttente = false;
+    const publier = () => {
+      if (enAttente) return;
+      enAttente = true;
+      requestAnimationFrame(() => {
+        enAttente = false;
+        if (!parti) setTextures(new Map(presentes));
+      });
+    };
+
+    const lire = (fichier: number) => {
+      let demande = memoire.get(fichier);
+      if (!demande) {
+        const nouvelle: DemandeTexture = {
+          lecture: lireTexture(fichier)
+            .catch((cause) => {
+              console.error(`la texture ${fichier} ne se lit pas`, cause);
+              return null;
+            })
+            .then((lue) => (nouvelle.lue = lue)),
+        };
+        demande = nouvelle;
+        memoire.set(fichier, demande);
+      }
+      return demande.lecture;
+    };
+
+    const restantes = fichiers.filter((f) => !presentes.has(f));
+    const suivante = async (): Promise<void> => {
+      const fichier = restantes.shift();
+      if (fichier === undefined || parti) return;
+      presentes.set(fichier, await lire(fichier));
+      publier();
+      return suivante();
+    };
+    publier();
+    for (let i = 0; i < LECTURES_SIMULTANEES; i++) void suivante();
+
+    return () => {
+      parti = true;
+    };
+    // `archive` change à chaque ouverture, `ouverte` n'en est que le chemin.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cle, archive]);
+
+  return ouverte ? textures : SANS_TEXTURES;
+}
+
+const SANS_TEXTURES = new Map<number, TextureLue | null>();
