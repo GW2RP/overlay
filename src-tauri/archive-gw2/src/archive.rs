@@ -147,7 +147,7 @@ impl Archive {
 
         let mut par_numero = HashMap::new();
         let mut par_entree: HashMap<usize, Fichier> = HashMap::new();
-        for paire in octets_index.chunks_exact(8) {
+        for paire in octets_index.as_chunks::<8>().0 {
             let numero = u32_le(paire, 0);
             let entree = u32_le(paire, 4) as usize;
             if numero == 0 && entree == 0 {
