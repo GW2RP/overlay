@@ -83,14 +83,14 @@ pub fn lire_contenu(octets: &[u8]) -> Result<Option<Contenu>, ErreurPf> {
     let (_, nombre_de_types) = c.tableau()?;
     let _espaces_de_noms = c.tableau()?;
 
-    let (debut, n) = c.tableau()?;
+    let (debut, n) = c.tableau_de(c.taille_pointeur())?;
     let mut fichiers = Vec::with_capacity(n);
     let mut f = fichier.curseur(debut);
     for _ in 0..n {
         fichiers.push(f.reference_fichier()?);
     }
 
-    let (debut, n) = c.tableau()?;
+    let (debut, n) = c.tableau_de(16)?;
     let mut index = Vec::with_capacity(n);
     let mut f = fichier.curseur(debut);
     for _ in 0..n {
@@ -103,7 +103,7 @@ pub fn lire_contenu(octets: &[u8]) -> Result<Option<Contenu>, ErreurPf> {
 
     let _renvois_locaux = c.tableau()?;
 
-    let (debut, n) = c.tableau()?;
+    let (debut, n) = c.tableau_de(8)?;
     let mut renvois_externes = Vec::with_capacity(n);
     let mut f = fichier.curseur(debut);
     for _ in 0..n {
@@ -115,7 +115,7 @@ pub fn lire_contenu(octets: &[u8]) -> Result<Option<Contenu>, ErreurPf> {
         });
     }
 
-    let (debut, n) = c.tableau()?;
+    let (debut, n) = c.tableau_de(4)?;
     let mut renvois_fichiers = Vec::with_capacity(n);
     let mut f = fichier.curseur(debut);
     for _ in 0..n {
@@ -125,14 +125,14 @@ pub fn lire_contenu(octets: &[u8]) -> Result<Option<Contenu>, ErreurPf> {
     let _renvois_chaines = c.tableau()?;
     let _references_suivies = c.tableau()?;
 
-    let (debut, n) = c.tableau()?;
+    let (debut, n) = c.tableau_de(c.taille_pointeur())?;
     let mut chaines = Vec::with_capacity(n);
     let mut f = fichier.curseur(debut);
     for _ in 0..n {
         chaines.push(f.chaine16()?.unwrap_or_default());
     }
 
-    let (debut, n) = c.tableau()?;
+    let (debut, n) = c.tableau_de(1)?;
     let octets_contenu = octets
         .get(debut..debut + n)
         .ok_or(ErreurPf::HorsLimites("contenu"))?

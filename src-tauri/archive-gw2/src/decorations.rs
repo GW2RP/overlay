@@ -69,8 +69,11 @@ pub fn trouver_le_contenu(
         return Ok(Vec::new());
     };
     let mut fichiers = vec![paquet];
-    while est_contenu(fichiers[fichiers.len() - 1] + 1) {
-        fichiers.push(fichiers[fichiers.len() - 1] + 1);
+    while let Some(suivant) = fichiers[fichiers.len() - 1]
+        .checked_add(1)
+        .filter(|&n| est_contenu(n))
+    {
+        fichiers.push(suivant);
     }
     Ok(fichiers)
 }
@@ -90,6 +93,17 @@ pub fn indexer(archive: &Archive, fichiers: &[u32]) -> Result<HashMap<u32, u32>,
         }
         let Some(table) = &table else { continue };
         relever(&contenu, table, &mut modeles);
+    }
+    // Une table vide n'est pas un succès : c'est un contenu que cette version
+    // ne sait plus lire, et l'éditeur doit le dire plutôt que d'afficher
+    // « 0 modèles ».
+    if table.is_none() {
+        return Err(ErreurArchive::Format("le paquet de contenu ne se lit pas"));
+    }
+    if modeles.is_empty() {
+        return Err(ErreurArchive::Format(
+            "aucune décoration dans le contenu : le jeu a changé de format",
+        ));
     }
     Ok(modeles)
 }

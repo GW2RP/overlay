@@ -269,7 +269,10 @@ pour qu'une déconnexion faite dans une fenêtre se voie dans les autres.
 la principale et qui n'est pas un élément : elle ne se pose pas sur le jeu, elle
 se lit à côté. On y importe la disposition que le jeu exporte en XML, et on la
 voit en trois dimensions, la liste de ses sortes à côté. Elle charge three.js
-**à part** (`React.lazy`) : les éléments d'overlay ne le téléchargent pas.
+**à part** (`React.lazy`) : les éléments d'overlay ne le téléchargent pas. Et
+elle ne naît qu'à la première demande (`create: false`, construite par
+`ouvrir_pavillon`) : née cachée au démarrage, elle rouvrirait l'archive à
+chaque lancement sans qu'on ait rien demandé.
 
 Un fichier dont une décoration est illisible **se refuse entier** : en sauter
 une montrerait un pavillon qui n'est pas le sien. `pos` est en pouces dans le
@@ -289,6 +292,15 @@ déplacerait donne une décoration sans modèle, pas un modèle faux. Le premier
 fichier du contenu se range dans les réglages (`archiveGw2`) : retrouvé, il
 évite de parcourir l'archive. Un modèle voyage en **binaire**
 (`modele_decoration`), pas en JSON.
+
+**L'archive ne reste pas ouverte** entre deux lectures : le jeu ouvre la sienne
+en exclusif, et un handle gardé l'empêcherait de démarrer — dans l'autre sens,
+jeu lancé, l'ouverture échoue et le dit (`-shareArchive`). Le lanceur la met à
+jour en place, donc l'index se juge sur la taille et la date du fichier, et se
+refait quand elles changent. Rien ne s'alloue sur la foi d'un compte lu dans
+l'archive : un tableau doit tenir dans son fichier (`tableau_de`), une lecture
+dans l'archive — sinon un octet abîmé réclame des gigaoctets, et un échec
+d'allocation emporte toute l'application, éléments compris.
 
 Une décoration sans modèle lisible reste un **repère** à sa place et à sa
 taille de repère : on voit qu'elle est là, sans lui inventer de forme.

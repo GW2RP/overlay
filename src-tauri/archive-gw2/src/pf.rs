@@ -137,8 +137,9 @@ impl<'a> Curseur<'a> {
 
     fn prendre(&mut self, n: usize) -> Result<&'a [u8], ErreurPf> {
         let tranche = self
-            .octets
-            .get(self.position..self.position + n)
+            .position
+            .checked_add(n)
+            .and_then(|fin| self.octets.get(self.position..fin))
             .ok_or(ErreurPf::HorsLimites("champ"))?;
         self.position += n;
         Ok(tranche)
@@ -178,11 +179,12 @@ impl<'a> Curseur<'a> {
         if decalage == 0 {
             return Ok(None);
         }
-        let cible = ici as i64 + decalage;
-        if cible < 0 || cible as usize >= self.octets.len() {
-            return Err(ErreurPf::HorsLimites("pointeur"));
-        }
-        Ok(Some(cible as usize))
+        let cible = (ici as i64)
+            .checked_add(decalage)
+            .and_then(|cible| usize::try_from(cible).ok())
+            .filter(|&cible| cible < self.octets.len())
+            .ok_or(ErreurPf::HorsLimites("pointeur"))?;
+        Ok(Some(cible))
     }
 
     /// Un tableau : son compte, puis un décalage vers son premier élément.
@@ -194,6 +196,20 @@ impl<'a> Curseur<'a> {
             Some(debut) => (debut, nombre),
             None => (0, 0),
         })
+    }
+
+    /// Un tableau dont chaque élément pèse `taille` octets, et qui doit tenir
+    /// dans le fichier : un compte abîmé ne réclame pas des gigaoctets.
+    pub fn tableau_de(&mut self, taille: usize) -> Result<(usize, usize), ErreurPf> {
+        let (debut, nombre) = self.tableau()?;
+        let tient = nombre
+            .checked_mul(taille)
+            .and_then(|octets| debut.checked_add(octets))
+            .is_some_and(|fin| fin <= self.octets.len());
+        if !tient {
+            return Err(ErreurPf::HorsLimites("tableau"));
+        }
+        Ok((debut, nombre))
     }
 
     /// Un nom de fichier : un pointeur vers deux mots de 16 bits qui encodent
@@ -261,5 +277,31 @@ mod tests {
             larges: false,
         };
         assert_eq!(c.pointeur().unwrap(), Some(0));
+    }
+
+    #[test]
+    fn un_compte_abime_ne_reserve_rien() {
+        // Un tableau de 0xFFFF_FFFF éléments dont le premier suit le compte.
+        let mut octets = vec![0u8; 16];
+        octets[0..4].copy_from_slice(&u32::MAX.to_le_bytes());
+        octets[4..8].copy_from_slice(&4i32.to_le_bytes());
+        let mut c = Curseur {
+            octets: &octets,
+            position: 0,
+            larges: false,
+        };
+        assert!(c.tableau_de(4).is_err());
+    }
+
+    #[test]
+    fn un_pointeur_demesure_se_refuse() {
+        let mut octets = vec![0u8; 16];
+        octets[0..8].copy_from_slice(&i64::MAX.to_le_bytes());
+        let mut c = Curseur {
+            octets: &octets,
+            position: 0,
+            larges: true,
+        };
+        assert!(c.pointeur().is_err());
     }
 }

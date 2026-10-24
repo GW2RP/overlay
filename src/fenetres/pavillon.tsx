@@ -71,7 +71,7 @@ export function FenetrePavillon() {
         <div>
           <p className="eyebrow text-gold-eyebrow">PAVILLON</p>
           <h1 className="card-title text-ink">
-            {disposition ? disposition.carteNom || `Carte ${disposition.carteId}` : "Éditeur de pavillon"}
+            {titreDe(disposition)}
           </h1>
           {disposition && nomFichier ? (
             <p className="caption text-ink-muted">
@@ -153,6 +153,14 @@ export function FenetrePavillon() {
   );
 }
 
+/** Le nom de la carte, son numéro à défaut, et rien d'inventé sans l'un ni
+ *  l'autre. */
+function titreDe(disposition: Disposition | null): string {
+  if (disposition?.carteNom) return disposition.carteNom;
+  if (disposition?.carteId) return `Carte ${disposition.carteId}`;
+  return "Éditeur de pavillon";
+}
+
 /** L'icône de l'API, ou sa place vide de même taille tant qu'elle manque. */
 function Icone({ fiche }: { fiche: FicheDecoration | undefined }) {
   return fiche?.icon ? (
@@ -223,6 +231,8 @@ function useArchive(): Archive {
     setErreur(null);
     ouvrirArchive(demande, indice.current)
       .then((etat) => {
+        // Rouverte, l'archive a pu être mise à jour : ses modèles se relisent.
+        modelesLus.delete(etat.chemin);
         setOuverte(etat);
         indice.current = etat.paquet;
         return ecrireArchive({ chemin: etat.chemin, paquet: etat.paquet });
@@ -293,8 +303,18 @@ function BarreArchive({ archive }: { archive: Archive }) {
   );
 }
 
-/** Les modèles des sortes de la disposition, lus dans l'archive ouverte. Une
- *  sorte sans modèle reste absente de la table : la scène la montre en repère. */
+/** Lectures de modèles menées de front : chacune occupe un fil de Rust et
+ *  ses tampons, et une disposition compte plus de cent sortes. */
+const LECTURES_SIMULTANEES = 6;
+
+/** Les modèles déjà lus, par archive puis par décoration : un nouvel import
+ *  ne relit pas ce qu'un autre a déjà décompressé. */
+const modelesLus = new Map<string, Map<number, Maillage[]>>();
+
+/** Les modèles des sortes de la disposition, lus dans l'archive ouverte. La
+ *  table se pose au fil des lectures, pas une fois la dernière finie. Une
+ *  sorte sans modèle reste absente de la table : la scène la montre en
+ *  repère. */
 function useModeles(ids: number[], archive: EtatArchive | null): Map<number, Maillage[]> {
   const [modeles, setModeles] = useState<Map<number, Maillage[]>>(new Map());
   const cle = ids.join(",");
@@ -303,19 +323,44 @@ function useModeles(ids: number[], archive: EtatArchive | null): Map<number, Mai
   useEffect(() => {
     if (!cle || !ouverte) return;
     let parti = false;
-    Promise.all(
-      cle.split(",").map(async (id) => {
-        try {
-          return [Number(id), await lireModele(Number(id))] as [number, Maillage[]];
-        } catch (cause) {
-          console.error(`le modèle de la décoration ${id} ne se lit pas`, cause);
-          return [Number(id), []] as [number, Maillage[]];
-        }
-      }),
-    ).then((lus) => {
-      if (parti) return;
-      setModeles(new Map(lus.filter(([, maillages]) => maillages.length > 0)));
-    });
+    let lus = modelesLus.get(ouverte);
+    if (!lus) {
+      lus = new Map();
+      modelesLus.set(ouverte, lus);
+    }
+    const memoire = lus;
+    const voulus = cle.split(",").map(Number);
+    const presents = () =>
+      new Map(voulus.flatMap((id) => (memoire.get(id)?.length ? [[id, memoire.get(id)!]] : [])));
+    const restants = voulus.filter((id) => !memoire.has(id));
+
+    // Une image par lot plutôt qu'une par modèle : la scène se reconstruit
+    // à chaque nouvelle table.
+    let enAttente = false;
+    const publier = () => {
+      if (enAttente) return;
+      enAttente = true;
+      requestAnimationFrame(() => {
+        enAttente = false;
+        if (!parti) setModeles(presents());
+      });
+    };
+
+    const suivant = async (): Promise<void> => {
+      const id = restants.shift();
+      if (id === undefined || parti) return;
+      try {
+        memoire.set(id, await lireModele(id));
+      } catch (cause) {
+        console.error(`le modèle de la décoration ${id} ne se lit pas`, cause);
+      }
+      publier();
+      return suivant();
+    };
+    // Ce que la mémoire a déjà, tout de suite ; le reste au fil des lectures.
+    publier();
+    for (let i = 0; i < LECTURES_SIMULTANEES; i++) void suivant();
+
     return () => {
       parti = true;
     };

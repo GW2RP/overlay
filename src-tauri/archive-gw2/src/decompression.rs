@@ -301,7 +301,10 @@ pub fn decompresser(
     let annoncee = lecteur.lire(32)? as usize;
     let taille = limite.map_or(annoncee, |limite| limite.min(annoncee));
 
-    let mut sortie = Vec::with_capacity(taille);
+    // La taille annoncée n'est qu'annoncée : la réserver d'emblée laisserait
+    // un en-tête abîmé réclamer quatre gigaoctets. Le vecteur grandit s'il
+    // le faut.
+    let mut sortie = Vec::with_capacity(taille.min(compresse.len().saturating_mul(8)));
 
     lecteur.consommer(4)?;
     let ajout_longueur = lecteur.lire(4)? + 1;

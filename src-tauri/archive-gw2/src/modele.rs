@@ -63,8 +63,8 @@ pub fn lire_modele(octets: &[u8]) -> Result<Option<Modele>, ErreurPf> {
 
     // La racine : un tableau de pointeurs vers les maillages.
     let mut racine = fichier.curseur(bloc.debut);
-    let (debut, nombre) = racine.tableau()?;
     let taille_pointeur = racine.taille_pointeur();
+    let (debut, nombre) = racine.tableau_de(taille_pointeur)?;
 
     let mut maillages = Vec::with_capacity(nombre);
     for i in 0..nombre {
@@ -101,8 +101,8 @@ fn lire_maillage(mut c: Curseur<'_>) -> Result<Option<Maillage>, ErreurPf> {
     };
     let nombre_sommets = g.u32()? as usize;
     let fvf = g.u32()?;
-    let (debut_sommets, taille_sommets) = g.tableau()?;
-    let (debut_index, nombre_index) = g.tableau()?;
+    let (debut_sommets, taille_sommets) = g.tableau_de(1)?;
+    let (debut_index, nombre_index) = g.tableau_de(2)?;
 
     if nombre_sommets == 0 || taille_sommets == 0 || nombre_index < 3 {
         return Ok(None);
@@ -111,6 +111,11 @@ fn lire_maillage(mut c: Curseur<'_>) -> Result<Option<Maillage>, ErreurPf> {
     let complete = fvf & FVF_POSITION != 0;
     let compressee = fvf & FVF_POSITION_COMPRESSEE != 0;
     if !complete && !compressee {
+        return Ok(None);
+    }
+    // Un sommet porte au moins sa position : un pas plus court annonce plus
+    // de sommets que le tableau n'en contient.
+    if pas < if complete { 12 } else { 6 } {
         return Ok(None);
     }
 

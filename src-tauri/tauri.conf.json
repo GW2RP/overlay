@@ -119,6 +119,7 @@
       },
       {
         "label": "pavillon",
+        "create": false,
         "title": "GW2RP — Éditeur de pavillon",
         "url": "index.html#/pavillon",
         "width": 1280,

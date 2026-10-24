@@ -30,7 +30,8 @@ export type Decoration = {
 };
 
 export type Disposition = {
-  carteId: number;
+  /** `null` quand le fichier ne la nomme pas : on ne lui en invente pas. */
+  carteId: number | null;
   carteNom: string;
   decorations: Decoration[];
 };
@@ -74,7 +75,7 @@ export function lireDisposition(texte: string): Disposition {
   });
 
   return {
-    carteId: Number(racine.getAttribute("mapId")) || 0,
+    carteId: Number(racine.getAttribute("mapId")) || null,
     carteNom: racine.getAttribute("mapName") ?? "",
     decorations,
   };
@@ -113,29 +114,39 @@ const fiches = new Map<number, FicheDecoration>();
 
 /** Les fiches de l'API pour ces décorations, depuis la mémoire ou l'API. Une
  *  décoration que l'API ne connaît pas — ajoutée depuis — n'a simplement pas
- *  de fiche. */
+ *  de fiche, et un lot qui échoue n'emporte pas les autres. */
 export async function lireFiches(ids: number[]): Promise<Map<number, FicheDecoration>> {
   const manquants = [...new Set(ids)].filter((id) => !fiches.has(id));
   for (let i = 0; i < manquants.length; i += PAR_REQUETE) {
     const lot = manquants.slice(i, i + PAR_REQUETE);
-    const reponse = await tauriFetch(
-      `${API_GW2}/homestead/decorations?ids=${lot.join(",")}&lang=fr`,
-      { headers: { Accept: "application/json" } },
-    );
-    // 206 : une partie des identifiants est inconnue, le reste est rendu.
-    if (!reponse.ok && reponse.status !== 206) {
-      throw new Error(`L'API du jeu ne décrit pas les décorations (HTTP ${reponse.status}).`);
-    }
-    for (const fiche of (await reponse.json()) as FicheDecoration[]) {
-      fiches.set(fiche.id, {
-        id: fiche.id,
-        name: fiche.name,
-        icon: fiche.icon,
-        categories: fiche.categories ?? [],
-      });
+    try {
+      await lireLot(lot);
+    } catch (cause) {
+      console.error("un lot de fiches de décorations ne se lit pas", cause);
     }
   }
   return new Map(ids.flatMap((id) => (fiches.has(id) ? [[id, fiches.get(id)!]] : [])));
+}
+
+async function lireLot(lot: number[]): Promise<void> {
+  const reponse = await tauriFetch(
+    `${API_GW2}/homestead/decorations?ids=${lot.join(",")}&lang=fr`,
+    { headers: { Accept: "application/json" } },
+  );
+  // 206 : une partie des identifiants est inconnue, le reste est rendu.
+  // 404 : tous le sont — un lot vide, pas une panne.
+  if (reponse.status === 404) return;
+  if (!reponse.ok && reponse.status !== 206) {
+    throw new Error(`L'API du jeu ne décrit pas les décorations (HTTP ${reponse.status}).`);
+  }
+  for (const fiche of (await reponse.json()) as FicheDecoration[]) {
+    fiches.set(fiche.id, {
+      id: fiche.id,
+      name: fiche.name,
+      icon: fiche.icon,
+      categories: fiche.categories ?? [],
+    });
+  }
 }
 
 /* --- L'archive du jeu ---------------------------------------------------------- */

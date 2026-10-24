@@ -3,13 +3,16 @@
 //!
 //! L'archive pèse des dizaines de gigaoctets : elle ne se charge jamais, on y
 //! lit fichier par fichier, à la position que la table donne.
+//!
+//! Elle ne reste pas ouverte entre deux lectures : le jeu ouvre la sienne en
+//! exclusif, et un handle gardé l'empêcherait de démarrer. Rouvrir coûte
+//! moins qu'un modèle à décompresser.
 
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
-use std::path::Path;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
 
 use crate::decompression::{decompresser, ErreurDecompression};
 
@@ -26,9 +29,15 @@ const ENTREE_INDEX: usize = 2;
 /// en élargissant tant que ça ne suffit pas.
 const PREFIXES_POUR_EN_TETE: [usize; 3] = [1024, 8192, 65_536];
 
+/// `ERROR_SHARING_VIOLATION` : un autre programme tient le fichier en
+/// exclusif.
+const ERREUR_PARTAGE: i32 = 32;
+
 #[derive(Debug)]
 pub enum ErreurArchive {
     Lecture(io::Error),
+    /// Le jeu tourne et tient son archive.
+    Verrouillee,
     /// Ni une archive d'ArenaNet, ni une table qu'on sache lire.
     Format(&'static str),
     /// Aucun fichier ne porte ce numéro.
@@ -40,6 +49,10 @@ impl fmt::Display for ErreurArchive {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Lecture(erreur) => write!(f, "lecture de l'archive : {erreur}"),
+            Self::Verrouillee => write!(
+                f,
+                "le jeu tient l'archive : fermez-le, ou lancez-le avec -shareArchive"
+            ),
             Self::Format(quoi) => write!(f, "archive illisible : {quoi}"),
             Self::Absent(id) => write!(f, "aucun fichier {id} dans l'archive"),
             Self::Decompression(id, erreur) => write!(f, "fichier {id} : {erreur}"),
@@ -51,7 +64,11 @@ impl std::error::Error for ErreurArchive {}
 
 impl From<io::Error> for ErreurArchive {
     fn from(erreur: io::Error) -> Self {
-        Self::Lecture(erreur)
+        if erreur.raw_os_error() == Some(ERREUR_PARTAGE) {
+            Self::Verrouillee
+        } else {
+            Self::Lecture(erreur)
+        }
     }
 }
 
@@ -74,7 +91,10 @@ pub struct Fichier {
 }
 
 pub struct Archive {
-    fichier: Mutex<File>,
+    chemin: PathBuf,
+    /// La taille du fichier à l'ouverture : rien ne se lit au-delà, quoi
+    /// qu'une table abîmée annonce.
+    longueur: u64,
     entrees: Vec<Entree>,
     /// Numéro de fichier (de base ou de révision) → index dans `entrees`.
     par_numero: HashMap<u32, usize>,
@@ -104,7 +124,14 @@ fn u64_le(o: &[u8], i: usize) -> u64 {
 
 impl Archive {
     pub fn ouvrir(chemin: impl AsRef<Path>) -> Result<Self, ErreurArchive> {
-        let mut fichier = File::open(chemin)?;
+        let chemin = chemin.as_ref().to_path_buf();
+        let mut fichier = File::open(&chemin)?;
+        let longueur = fichier.metadata()?.len();
+        let tient = |position: u64, taille: usize| {
+            position
+                .checked_add(taille as u64)
+                .is_some_and(|fin| fin <= longueur)
+        };
 
         let mut entete = [0u8; TAILLE_ENTETE];
         fichier.read_exact(&mut entete)?;
@@ -114,6 +141,9 @@ impl Archive {
         let position_mft = u64_le(&entete, 24);
         let taille_mft = u32_le(&entete, 32) as usize;
 
+        if !tient(position_mft, taille_mft) {
+            return Err(ErreurArchive::Format("table hors de l'archive"));
+        }
         let mut mft = vec![0u8; taille_mft];
         fichier.seek(SeekFrom::Start(position_mft))?;
         fichier.read_exact(&mut mft)?;
@@ -121,7 +151,7 @@ impl Archive {
             return Err(ErreurArchive::Format("signature de table absente"));
         }
         let nombre = u32_le(&mft, 12) as usize;
-        if nombre * TAILLE_ENTREE_MFT > mft.len() {
+        if nombre.saturating_mul(TAILLE_ENTREE_MFT) > mft.len() {
             return Err(ErreurArchive::Format("table plus courte que son compte"));
         }
 
@@ -141,6 +171,9 @@ impl Archive {
         let index = entrees
             .get(ENTREE_INDEX)
             .ok_or(ErreurArchive::Format("index absent"))?;
+        if !tient(index.position, index.taille as usize) {
+            return Err(ErreurArchive::Format("index hors de l'archive"));
+        }
         let mut octets_index = vec![0u8; index.taille as usize];
         fichier.seek(SeekFrom::Start(index.position))?;
         fichier.read_exact(&mut octets_index)?;
@@ -177,7 +210,8 @@ impl Archive {
         fichiers.sort_by_key(|f| f.base);
 
         Ok(Self {
-            fichier: Mutex::new(fichier),
+            chemin,
+            longueur,
             entrees,
             par_numero,
             fichiers,
@@ -194,8 +228,15 @@ impl Archive {
     }
 
     fn lire_brut(&self, entree: Entree, taille: usize) -> Result<Vec<u8>, ErreurArchive> {
+        let hors = entree
+            .position
+            .checked_add(taille as u64)
+            .is_none_or(|fin| fin > self.longueur);
+        if hors {
+            return Err(ErreurArchive::Format("fichier hors de l'archive"));
+        }
         let mut octets = vec![0u8; taille];
-        let mut fichier = self.fichier.lock().unwrap_or_else(|e| e.into_inner());
+        let mut fichier = File::open(&self.chemin)?;
         fichier.seek(SeekFrom::Start(entree.position))?;
         fichier.read_exact(&mut octets)?;
         Ok(octets)

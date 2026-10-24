@@ -11,6 +11,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use archive_gw2::decorations::{indexer, trouver_le_contenu};
 use archive_gw2::modele::lire_modele;
@@ -21,6 +22,9 @@ use tauri::State;
 
 struct Bibliotheque {
     chemin: String,
+    /// Taille et date du fichier à l'indexation : le lanceur met l'archive à
+    /// jour en place, et une table lue avant pointerait à côté.
+    empreinte: Empreinte,
     paquet: u32,
     archive: Arc<Archive>,
     /// Identifiant de décoration → fichier de son modèle.
@@ -40,6 +44,13 @@ pub struct EtatArchive {
     pub decorations: usize,
 }
 
+type Empreinte = (u64, Option<SystemTime>);
+
+fn empreinte(chemin: &str) -> Option<Empreinte> {
+    let meta = std::fs::metadata(chemin).ok()?;
+    Some((meta.len(), meta.modified().ok()))
+}
+
 fn bibliotheque(etat: &State<'_, Pavillon>) -> Result<Option<Arc<Bibliotheque>>, String> {
     Ok(etat
         .0
@@ -57,7 +68,7 @@ pub async fn ouvrir_archive(
     indice: Option<u32>,
 ) -> Result<EtatArchive, String> {
     if let Some(ouverte) = bibliotheque(&etat)? {
-        if ouverte.chemin == chemin {
+        if ouverte.chemin == chemin && empreinte(&chemin) == Some(ouverte.empreinte) {
             return Ok(EtatArchive {
                 chemin,
                 paquet: ouverte.paquet,
@@ -68,6 +79,7 @@ pub async fn ouvrir_archive(
 
     let chemin_lu = chemin.clone();
     let bibliotheque = tauri::async_runtime::spawn_blocking(move || {
+        let empreinte = empreinte(&chemin_lu).ok_or("l'archive est introuvable à ce chemin")?;
         let archive = Archive::ouvrir(&chemin_lu).map_err(|e| e.to_string())?;
         let contenu = trouver_le_contenu(&archive, indice).map_err(|e| e.to_string())?;
         let Some(&paquet) = contenu.first() else {
@@ -76,6 +88,7 @@ pub async fn ouvrir_archive(
         let modeles = indexer(&archive, &contenu).map_err(|e| e.to_string())?;
         Ok(Bibliotheque {
             chemin: chemin_lu,
+            empreinte,
             paquet,
             archive: Arc::new(archive),
             modeles,
@@ -104,6 +117,9 @@ pub async fn ouvrir_archive(
 #[tauri::command]
 pub async fn modele_decoration(etat: State<'_, Pavillon>, id: u32) -> Result<Response, String> {
     let ouverte = bibliotheque(&etat)?.ok_or("aucune archive ouverte")?;
+    if empreinte(&ouverte.chemin) != Some(ouverte.empreinte) {
+        return Err("l'archive a changé depuis son ouverture : rouvrez-la".to_string());
+    }
     let octets = tauri::async_runtime::spawn_blocking(move || {
         let maillages = match ouverte.modeles.get(&id) {
             Some(&fichier) => {

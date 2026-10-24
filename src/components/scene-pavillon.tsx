@@ -80,8 +80,10 @@ function geometrieDe(maillages: Maillage[]): THREE.BufferGeometry {
 /** Une couleur des jetons, lue sur la page : la scène suit le thème comme le
  *  reste de l'écran. */
 function jeton(nom: string): THREE.Color {
+  // Un jeton manquant laisse la couleur par défaut de three.js plutôt
+  // qu'une teinte inventée ici.
   const valeur = getComputedStyle(document.documentElement).getPropertyValue(nom).trim();
-  return new THREE.Color(valeur || "#808080");
+  return valeur ? new THREE.Color(valeur) : new THREE.Color();
 }
 
 type Monde = {
@@ -126,8 +128,10 @@ export function ScenePavillon({ decorations, modeles, choisie, onChoisir }: Prop
 
     const scene = new THREE.Scene();
     scene.background = jeton("--ground");
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 2.2));
-    const soleil = new THREE.DirectionalLight(0xffffff, 1.4);
+    // Des lumières sans teinte : la couleur est celle des jetons, portée par
+    // les matériaux. Le ciel éclaire plus que le sol, d'où le relief.
+    scene.add(new THREE.HemisphereLight(undefined, jeton("--ink-muted"), 2.2));
+    const soleil = new THREE.DirectionalLight(undefined, 1.4);
     soleil.position.set(1, 2, 1.5);
     scene.add(soleil);
 
@@ -198,16 +202,21 @@ export function ScenePavillon({ decorations, modeles, choisie, onChoisir }: Prop
       monde.current = null;
       vider(sortes);
       vider(traits);
+      sol.geometry.dispose();
+      [sol.material].flat().forEach((materiau) => materiau.dispose());
       observateur.disconnect();
       controles.dispose();
       rendu.domElement.removeEventListener("pointerdown", surAppui);
       rendu.domElement.removeEventListener("pointerup", surRelache);
       rendu.dispose();
+      // Sans cela, le contexte WebGL vit jusqu'au ramasse-miettes, et la vue
+      // web en refuse de nouveaux après quelques imports.
+      rendu.forceContextLoss();
       rendu.domElement.remove();
     };
   }, [decorations]);
 
-  // Les décorations : reconstruites à chaque modèle qui arrive. Quelques
+  // Les décorations : reconstruites à chaque lot de modèles qui arrive. Quelques
   // centaines de maillages instanciés, c'est l'affaire d'une image.
   useEffect(() => {
     const courant = monde.current;
