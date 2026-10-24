@@ -29,7 +29,9 @@ export type Historique<T> = {
   peutAnnuler: boolean;
   peutRetablir: boolean;
   modifie: boolean;
-  appliquer: (suivant: T) => void;
+  /** Avec `fusionner`, le geste prolonge le précédent au lieu d'en ouvrir
+   *  un : une flèche maintenue s'annule d'un seul coup. */
+  appliquer: (suivant: T, fusionner?: boolean) => void;
   annuler: () => void;
   retablir: () => void;
   /** Un nouveau départ : une autre disposition, sans passé. */
@@ -40,17 +42,17 @@ export type Historique<T> = {
 export function useHistorique<T>(depart: T): Historique<T> {
   const [etat, setEtat] = useState<Etat<T>>({ present: depart, passe: [], futur: [], enregistre: depart });
 
-  const appliquer = useCallback((suivant: T) => {
-    setEtat((e) =>
-      suivant === e.present
-        ? e
-        : {
-            ...e,
-            present: suivant,
-            passe: [...e.passe, e.present].slice(-GESTES_GARDES),
-            futur: [],
-          },
-    );
+  const appliquer = useCallback((suivant: T, fusionner = false) => {
+    setEtat((e) => {
+      if (suivant === e.present) return e;
+      if (fusionner && e.passe.length > 0) return { ...e, present: suivant, futur: [] };
+      return {
+        ...e,
+        present: suivant,
+        passe: [...e.passe, e.present].slice(-GESTES_GARDES),
+        futur: [],
+      };
+    });
   }, []);
 
   const annuler = useCallback(() => {

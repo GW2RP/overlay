@@ -1,8 +1,11 @@
 import { useEffect, useRef, type ReactNode } from "react";
 
+const ATTEIGNABLES = "input:not([disabled]), button:not([disabled]), select:not([disabled])";
+
 /**
- * Une boîte posée sur la fenêtre, derrière un voile : elle garde le focus,
- * se referme à `Échap`, et rend le focus à ce qui l'avait quand elle part.
+ * Une boîte posée sur la fenêtre, derrière un voile : elle garde le focus —
+ * `Tab` tourne dans la boîte sans atteindre ce que le voile couvre —, se
+ * referme à `Échap`, et rend le focus à ce qui l'avait quand elle part.
  * Son bouton principal est le seul carmin de l'écran tant qu'elle est là.
  */
 export function Modale({
@@ -20,9 +23,7 @@ export function Modale({
 
   useEffect(() => {
     const avant = document.activeElement as HTMLElement | null;
-    const premier = boite.current?.querySelector<HTMLElement>(
-      "input:not([disabled]), button:not([disabled])",
-    );
+    const premier = boite.current?.querySelector<HTMLElement>(ATTEIGNABLES);
     premier?.focus();
     return () => avant?.focus();
   }, []);
@@ -38,9 +39,22 @@ export function Modale({
           if (e.key === "Escape") {
             e.stopPropagation();
             onFermer();
+            return;
+          }
+          if (e.key !== "Tab" || !boite.current) return;
+          const atteignables = [...boite.current.querySelectorAll<HTMLElement>(ATTEIGNABLES)];
+          if (atteignables.length === 0) return;
+          const premier = atteignables[0];
+          const dernier = atteignables[atteignables.length - 1];
+          if (e.shiftKey && document.activeElement === premier) {
+            e.preventDefault();
+            dernier.focus();
+          } else if (!e.shiftKey && document.activeElement === dernier) {
+            e.preventDefault();
+            premier.focus();
           }
         }}
-        className="flex w-full max-w-[560px] flex-col border border-rule bg-surface"
+        className="flex w-full max-w-xl flex-col border border-rule bg-surface"
       >
         <h2 id="titre-modale" className="panel-title border-b border-hairline px-6 py-4 text-ink">
           {titre}

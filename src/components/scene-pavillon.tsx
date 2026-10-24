@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
@@ -28,7 +28,10 @@ import {
  *
  * Les poignées (`TransformControls`) tiennent un **pivot** au centre de la
  * sélection. Pendant le glissé, la scène suit seule, sans passer par React ;
- * au relâché, les décorations transformées remontent en un seul geste.
+ * au relâché, les décorations transformées remontent en un seul geste. Rien
+ * ne se reconstruit pendant un glissé — un lot de modèles qui arrive attend
+ * le relâché : le geste suit les instances qu'il a saisies, et une
+ * reconstruction les remplacerait sous lui.
  */
 
 /** Le côté d'un repère, en pouces : la taille d'un coffre. */
@@ -204,10 +207,15 @@ export function ScenePavillon({
   const monde = useRef<Monde | null>(null);
   // Les valeurs les plus récentes, lues par les écouteurs : la scène ne se
   // reconstruit pas parce que le parent a redessiné.
-  const courant = useRef({ decorations, selection, outil, onCliquer, onTransformer });
+  const courant = useRef({ decorations, selection, outil, pasPosition, onCliquer, onTransformer });
   useEffect(() => {
-    courant.current = { decorations, selection, outil, onCliquer, onTransformer };
-  }, [decorations, selection, outil, onCliquer, onTransformer]);
+    courant.current = { decorations, selection, outil, pasPosition, onCliquer, onTransformer };
+  }, [decorations, selection, outil, pasPosition, onCliquer, onTransformer]);
+  /** Vrai pendant un glissé des poignées : les reconstructions attendent. */
+  const enGlisse = useRef(false);
+  /** Vrai si une reconstruction a attendu : le relâché la relance. */
+  const differee = useRef(false);
+  const [rattrapage, setRattrapage] = useState(0);
 
   // La scène, la caméra et leurs commandes : une fois par disposition.
   useEffect(() => {
@@ -271,6 +279,7 @@ export function ScenePavillon({
       const m = monde.current;
       if (!m) return;
       pivot.updateMatrixWorld();
+      enGlisse.current = true;
       const places = [...courant.current.selection].flatMap((cle) => {
         const place = m.places.get(cle);
         return place ? [place] : [];
@@ -286,6 +295,11 @@ export function ScenePavillon({
     const finir = () => {
       const depart = glisse;
       glisse = null;
+      enGlisse.current = false;
+      if (differee.current) {
+        differee.current = false;
+        setRattrapage((n) => n + 1);
+      }
       if (!depart) return;
       pivot.updateMatrixWorld();
       const outilCourant = courant.current.outil;
@@ -327,6 +341,19 @@ export function ScenePavillon({
     poignees.addEventListener("objectChange", () => {
       const depart = glisse;
       if (!depart) return;
+      // Le pas compte depuis le départ du glissé, pas depuis l'origine : le
+      // pivot est rarement sur la grille, et un premier cran de dix pouces
+      // doit déplacer de dix. La poignée ne l'arrondit donc pas elle-même.
+      const pas = courant.current.pasPosition;
+      if (courant.current.outil === "deplacer" && pas) {
+        const ecartPivot = pivot.position.clone().sub(depart.position);
+        ecartPivot.set(
+          Math.round(ecartPivot.x / pas) * pas,
+          Math.round(ecartPivot.y / pas) * pas,
+          Math.round(ecartPivot.z / pas) * pas,
+        );
+        pivot.position.copy(depart.position).add(ecartPivot);
+      }
       // L'échelle du jeu est uniforme : la poignée d'un axe la donne aux trois.
       if (courant.current.outil === "echelle") {
         const { x, y, z } = pivot.scale;
@@ -345,6 +372,9 @@ export function ScenePavillon({
         place.instances.setMatrixAt(place.rang, matrice);
         place.instances.instanceMatrix.needsUpdate = true;
       });
+      // `change` est parti avant ce réglage : sans ce rendu, l'image aurait
+      // un mouvement de retard.
+      rendre();
     });
 
     const ajuster = () => {
@@ -402,7 +432,9 @@ export function ScenePavillon({
     return () => {
       monde.current = null;
       if (pointDePoseRef) pointDePoseRef.current = null;
-      sortes.clear();
+      enGlisse.current = false;
+      differee.current = false;
+      viderSortes(sortes);
       vider(traits);
       geometries.forEach(({ geometrie }) => geometrie.dispose());
       materiau.dispose();
@@ -430,7 +462,11 @@ export function ScenePavillon({
   useEffect(() => {
     const m = monde.current;
     if (!m) return;
-    m.sortes.clear();
+    if (enGlisse.current) {
+      differee.current = true;
+      return;
+    }
+    viderSortes(m.sortes);
     vider(m.traits);
     m.places.clear();
 
@@ -441,11 +477,11 @@ export function ScenePavillon({
       else parSorte.set(decoration.id, [decoration]);
     }
 
-    const avant = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, COTE_REPERE / 2, 0),
-      new THREE.Vector3(COTE_REPERE, COTE_REPERE / 2, 0),
-    ]);
-    const materiauTrait = new THREE.LineBasicMaterial({ color: jeton("--ink") });
+    // L'avant des repères : un segment par repère, tous dans un seul tracé.
+    const debutAvant = new THREE.Vector3(0, COTE_REPERE / 2, 0);
+    const finAvant = new THREE.Vector3(COTE_REPERE, COTE_REPERE / 2, 0);
+    const avants: number[] = [];
+    const point = new THREE.Vector3();
 
     for (const [id, membres] of parSorte) {
       const maillages = modeles.get(id);
@@ -473,12 +509,16 @@ export function ScenePavillon({
 
       if (!aUnModele) {
         for (const decoration of membres) {
-          const trait = new THREE.Line(avant, materiauTrait);
-          trait.matrixAutoUpdate = false;
-          trait.matrix.copy(matriceDe(decoration, false));
-          m.traits.add(trait);
+          const matrice = matriceDe(decoration, false);
+          avants.push(...point.copy(debutAvant).applyMatrix4(matrice).toArray());
+          avants.push(...point.copy(finAvant).applyMatrix4(matrice).toArray());
         }
       }
+    }
+    if (avants.length > 0) {
+      const geometrie = new THREE.BufferGeometry();
+      geometrie.setAttribute("position", new THREE.Float32BufferAttribute(avants, 3));
+      m.traits.add(new THREE.LineSegments(geometrie, new THREE.LineBasicMaterial({ color: jeton("--ink") })));
     }
     // Une sorte qui a quitté la disposition n'a plus de géométrie à garder.
     for (const [id, { geometrie }] of m.geometries) {
@@ -487,13 +527,17 @@ export function ScenePavillon({
         m.geometries.delete(id);
       }
     }
-  }, [decorations, modeles, cadrage]);
+  }, [decorations, modeles, cadrage, rattrapage]);
 
   // Les couleurs et les poignées : la sélection s'allume, et le pivot se pose
   // au milieu d'elle.
   useEffect(() => {
     const m = monde.current;
     if (!m) return;
+    if (enGlisse.current) {
+      differee.current = true;
+      return;
+    }
     const couleurModele = jeton("--gold");
     const couleurRepere = jeton("--rain");
     const couleurChoisie = jeton("--crimson");
@@ -523,17 +567,18 @@ export function ScenePavillon({
       m.poignees.detach();
     }
     m.rendre();
-  }, [selection, decorations, modeles, cadrage]);
+  }, [selection, decorations, modeles, cadrage, rattrapage]);
 
   // L'outil et son pas.
   useEffect(() => {
     const m = monde.current;
     if (!m) return;
     m.poignees.setMode(MODE_DES_POIGNEES[outil]);
-    m.poignees.setTranslationSnap(pasPosition);
+    // Le pas de déplacement s'applique à l'écart, dans `objectChange`.
+    m.poignees.setTranslationSnap(null);
     m.poignees.setRotationSnap(pasAngle);
     m.rendre();
-  }, [outil, pasPosition, pasAngle, cadrage]);
+  }, [outil, pasAngle, cadrage]);
 
   return <div ref={conteneur} className="size-full min-h-0" />;
 }
@@ -544,6 +589,13 @@ function couleursAJour(sortes: THREE.Group) {
     const instances = objet as THREE.InstancedMesh;
     if (instances.instanceColor) instances.instanceColor.needsUpdate = true;
   }
+}
+
+/** Retire les maillages instanciés et libère leurs tampons d'instances. Les
+ *  géométries, elles, restent : elles sont gardées d'un geste à l'autre. */
+function viderSortes(sortes: THREE.Group) {
+  for (const objet of sortes.children) (objet as THREE.InstancedMesh).dispose();
+  sortes.clear();
 }
 
 /** Retire et libère tout ce qu'un groupe porte. */

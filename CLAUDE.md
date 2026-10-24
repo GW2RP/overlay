@@ -275,24 +275,31 @@ elle ne naît qu'à la première demande (`create: false`, construite par
 chaque lancement sans qu'on ait rien demandé.
 
 **On l'y corrige, et on l'enregistre.** Les dispositions vivent dans un
-dossier choisi (`dossierDispositions`) — à défaut `Documents\Guild Wars
-2\Homesteads`, que le système situe, sous OneDrive compris : il change d'une
-machine à l'autre. Rust seul y touche (`src-tauri/src/dispositions.rs`) : des
-`.xml`, un **nom de fichier** et jamais un chemin, et pour la fenêtre `pavillon`
-seulement. Les boîtes de dossier et d'enregistrement s'ouvrent depuis Rust — le
-greffon `dialog` en crate seul, sans paquet npm ni permission au front —, donc
-l'export est la seule écriture hors du dossier, et son chemin sort de la boîte
-du système. Enregistrer écrit par défaut un **nouveau** fichier, qui n'en écrase
-aucun ; remplacer l'original se choisit, et passe par un fichier voisin renommé
-par-dessus.
+dossier choisi — à défaut `Documents\Guild Wars 2\Homesteads`, que le système
+situe, sous OneDrive compris : il change d'une machine à l'autre. **Rust tient
+ce dossier** (`DossierDispositions`, `src-tauri/src/dispositions.rs`) : seule
+la boîte de choix le change, et il se range dans un fichier à lui, à côté des
+données de l'application — pas dans le magasin, que le front écrit. Le front ne
+fait que le montrer ; il ne passe qu'un **nom de fichier**, jamais un chemin,
+et Rust ne répond qu'à la fenêtre `pavillon`. Une écriture confirme le dossier
+que l'écran montrait (`attendu`) : changé entre-temps, rien ne s'écrit. Les
+boîtes de dossier et d'enregistrement s'ouvrent depuis Rust — le greffon
+`dialog` en crate seul, sans paquet npm ni permission au front —, donc l'export
+est la seule écriture hors du dossier, et son chemin sort de la boîte du
+système, `.xml` compris : on n'y ajoute pas d'extension après la
+confirmation. Enregistrer écrit par défaut un **nouveau** fichier, qui n'en
+écrase aucun ; remplacer l'original se choisit, ne s'offre que dans le dossier
+d'où la disposition vient, et passe par un fichier voisin renommé par-dessus.
 
-**L'écriture rend l'octet** : `ecrireDisposition` reprend l'en-tête lu tel
-quel et écrit chaque prop au gabarit du jeu — quatre espaces, six décimales,
-`\n`. Une disposition lue puis enregistrée sans retouche ressort identique, et
-c'est ce qui garantit que l'éditeur ne change que ce qu'on a touché. L'échelle
-va par **252e** (`PAS_ECHELLE`) : chaque échelle des exports du jeu en est un
-multiple entier, ce que 1/63 ne tient pas (2,003968 = 505/252). Un angle
-s'écrit dans [0, 2π).
+**L'écriture rend l'octet d'un export du jeu** : `ecrireDisposition` reprend
+l'en-tête lu tel quel et écrit chaque prop au gabarit du jeu — quatre espaces,
+six décimales, `\n`. Une disposition exportée par le jeu, lue puis enregistrée
+sans retouche, ressort identique, et c'est ce qui garantit que l'éditeur ne
+change que ce qu'on a touché. Un fichier retouché ailleurs — BOM, fins de ligne
+`\r\n`, attributs inconnus, plus de six décimales — ressort, lui, au gabarit du
+jeu. L'échelle va par **252e** (`PAS_ECHELLE`) : chaque échelle des exports du
+jeu en est un multiple entier, ce que 1/63 ne tient pas (2,003968 = 505/252). Un
+angle s'écrit dans [0, 2π).
 
 **Une décoration a une clé** (`cle`), donnée à la lecture ou à l'ajout et
 jamais reprise : sélection, inspecteur et scène s'y accrochent, pas au rang dans
@@ -301,7 +308,9 @@ le fichier, qui bouge avec un retrait. Chaque geste pose une nouvelle liste
 que la translation — angles et échelle restent ceux du fichier, au chiffre
 près —, une rotation ou une échelle repasse par `decomposer`, l'inverse exact de
 `matriceDe`. Les poignées tiennent un pivot au centre de la sélection : pendant
-le glissé la scène suit seule, et le geste ne remonte qu'au relâché. La caméra
+le glissé la scène suit seule, rien ne s'y reconstruit — un lot de modèles
+qui arrive attend le relâché —, et le geste ne remonte qu'au relâché. Le pas
+des poignées compte depuis le départ du glissé, pas depuis l'origine. La caméra
 se cadre à l'ouverture d'une disposition (`cadrage`), jamais après un geste.
 Une décoration ajoutée se pose au point que la vue regarde, ramené au sol.
 

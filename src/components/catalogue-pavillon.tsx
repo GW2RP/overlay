@@ -24,6 +24,9 @@ type Etat =
   | { etat: "erreur" }
   | { etat: "pret"; fiches: FicheDecoration[]; categories: Categorie[] };
 
+/** Le catalogue lu, gardé pour la session — complet seulement : un lot de
+ *  l'API en échec ne fige pas un catalogue troué, la prochaine ouverture
+ *  le relit. */
 let memoire: { fiches: FicheDecoration[]; categories: Categorie[] } | null = null;
 
 /** Le plafond de tuiles à l'écran : au-delà, on affine la recherche. */
@@ -48,10 +51,10 @@ export function CataloguePavillon({
     if (memoire) return;
     let parti = false;
     Promise.all([lireCatalogue(), lireCategories()])
-      .then(([fiches, categories]) => {
+      .then(([{ fiches, complet }, categories]) => {
         fiches.sort((a, b) => a.name.localeCompare(b.name, "fr-FR"));
-        memoire = { fiches, categories };
-        if (!parti) setLu({ etat: "pret", ...memoire });
+        if (complet) memoire = { fiches, categories };
+        if (!parti) setLu({ etat: "pret", fiches, categories });
       })
       .catch((cause) => {
         console.error("le catalogue des décorations ne se lit pas", cause);

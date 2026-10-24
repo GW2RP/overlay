@@ -165,6 +165,7 @@ pub fn run() {
         .manage(Verrous::default())
         .manage(FicheCourante::default())
         .manage(pavillon::Pavillon::default())
+        .manage(dispositions::DossierDispositions::default())
         .invoke_handler(tauri::generate_handler![
             lire_edition,
             regler_edition,
@@ -180,7 +181,7 @@ pub fn run() {
             ouvrir_pavillon,
             pavillon::ouvrir_archive,
             pavillon::modele_decoration,
-            dispositions::dossier_par_defaut,
+            dispositions::dossier_dispositions,
             dispositions::choisir_dossier,
             dispositions::lister_dispositions,
             dispositions::lire_disposition,

@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/field";
 import {
   choisirDossier,
-  dossierParDefaut,
+  dossierDispositions,
   ecrireFichierDisposition,
   exporterDisposition,
   lireFichierDisposition,
@@ -42,12 +42,7 @@ import {
   type FicheDecoration,
   type Maillage,
 } from "@/lib/pavillon";
-import {
-  ecrireArchive,
-  ecrireDossierDispositions,
-  lireArchive,
-  lireDossierDispositions,
-} from "@/lib/reglages";
+import { ecrireArchive, lireArchive } from "@/lib/reglages";
 
 /**
  * L'éditeur de pavillon : une fenêtre à part, à chrome, qu'on ouvre depuis la
@@ -67,6 +62,10 @@ type Ouverte = {
   /** Le fichier du dossier d'où elle a été lue ou où elle a été
    *  enregistrée ; `null` pour un fichier importé d'ailleurs. */
   fichier: string | null;
+  /** Le dossier de ce fichier. On peut changer de dossier, disposition
+   *  ouverte : « remplacer » ne vaut que dans celui-ci, sans quoi il
+   *  écraserait l'homonyme d'un autre dossier. */
+  dossier: string | null;
   /** Son nom, sans extension : celui du fichier, ou de l'import. */
   nom: string;
 };
@@ -101,7 +100,7 @@ export function FenetrePavillon() {
   const [cadrage, setCadrage] = useState(0);
   const historique = useHistorique<Decoration[]>([]);
   const decorations = historique.present;
-  const [selection, setSelection] = useState<ReadonlySet<number>>(new Set());
+  const [choix, setSelection] = useState<ReadonlySet<number>>(new Set());
   const [outil, setOutil] = useState<Outil>("deplacer");
   const [pas, setPas] = useState<number | null>(10);
   const [pasAngle, setPasAngle] = useState<number | null>(15);
@@ -112,23 +111,34 @@ export function FenetrePavillon() {
   const [annonce, setAnnonce] = useState<string | null>(null);
   const champ = useRef<HTMLInputElement>(null);
   const pointDePose = useRef<(() => [number, number, number]) | null>(null);
+  /** Le numéro de la dernière ouverture demandée : une lecture plus lente,
+   *  partie avant, ne remplace pas ce qu'on a ouvert depuis. */
+  const ouverture = useRef(0);
 
   const dossier = useDossier();
   const sortes = useMemo(() => sortesDe(decorations), [decorations]);
-  const ids = sortes.map((sorte) => sorte.id);
+  // Triés, pour que la clé des lectures ne bouge pas quand l'ordre des
+  // sortes change avec leur nombre : seul un nouvel identifiant relit.
+  const ids = useMemo(() => sortes.map((sorte) => sorte.id).sort((a, b) => a - b), [sortes]);
   const fiches = useFiches(ids);
   const archive = useArchive();
   const modeles = useModeles(ids, archive.ouverte);
 
+  // Une annulation peut retirer une décoration choisie : la sélection ne
+  // garde que celles qui existent encore.
+  const selection = useMemo<ReadonlySet<number>>(() => {
+    const presentes = decorations.filter((d) => choix.has(d.cle)).map((d) => d.cle);
+    return presentes.length === choix.size ? choix : new Set(presentes);
+  }, [decorations, choix]);
   const choisies = useMemo(() => decorations.filter((d) => selection.has(d.cle)), [decorations, selection]);
   const rangs = useMemo(() => new Map(decorations.map((d, i) => [d.cle, i + 1])), [decorations]);
 
   /* --- Ouvrir ------------------------------------------------------------- */
 
-  function ouvrir(texte: string, fichier: string | null, nom: string) {
+  function ouvrir(texte: string, fichier: string | null, depuis: string | null, nom: string) {
     try {
       const lue = lireDisposition(texte);
-      setOuverte({ disposition: lue, fichier, nom });
+      setOuverte({ disposition: lue, fichier, dossier: depuis, nom });
       historique.repartir(lue.decorations);
       setSelection(new Set());
       setCadrage((c) => c + 1);
@@ -150,9 +160,14 @@ export function FenetrePavillon() {
     if (!dossier.dossier) return;
     const depuis = dossier.dossier;
     apresConfirmation(() => {
-      lireFichierDisposition(depuis, nom)
-        .then((texte) => ouvrir(texte, nom, sansExtension(nom)))
-        .catch((cause) => setErreur(phrase(cause, "Ce fichier ne se lit pas.")));
+      const numero = ++ouverture.current;
+      lireFichierDisposition(nom)
+        .then((texte) => {
+          if (numero === ouverture.current) ouvrir(texte, nom, depuis, sansExtension(nom));
+        })
+        .catch((cause) => {
+          if (numero === ouverture.current) setErreur(phrase(cause, "Ce fichier ne se lit pas."));
+        });
     });
   }
 
@@ -162,15 +177,29 @@ export function FenetrePavillon() {
     evenement.target.value = "";
     if (!fichier) return;
     const texte = await fichier.text();
-    apresConfirmation(() => ouvrir(texte, null, sansExtension(fichier.name)));
+    apresConfirmation(() => {
+      ++ouverture.current;
+      ouvrir(texte, null, null, sansExtension(fichier.name));
+    });
   }
 
   /* --- Les gestes --------------------------------------------------------- */
 
+  /** Un geste qui ne change rien — une saisie retapée à l'identique — n'en
+   *  est pas un : ni entrée d'historique, ni disposition « modifiée ».
+   *  `fusionner` prolonge le geste d'avant : une flèche maintenue se répète,
+   *  et s'annule d'un coup. */
   const remplacer = useCallback(
-    (modifiees: Decoration[]) => {
+    (modifiees: Decoration[], fusionner = false) => {
       const parCle = new Map(modifiees.map((d) => [d.cle, d]));
-      historique.appliquer(decorations.map((d) => parCle.get(d.cle) ?? d));
+      let change = false;
+      const suivantes = decorations.map((d) => {
+        const m = parCle.get(d.cle);
+        if (!m || memePlace(m, d)) return d;
+        change = true;
+        return m;
+      });
+      if (change) historique.appliquer(suivantes, fusionner);
     },
     [decorations, historique],
   );
@@ -229,13 +258,14 @@ export function FenetrePavillon() {
     setSelection(new Set());
   }
 
-  function deplacer(dx: number, dy: number, dz: number) {
+  function deplacer([dx, dy, dz]: [number, number, number], repetition: boolean) {
     if (choisies.length === 0) return;
     remplacer(
       choisies.map((d) => ({
         ...d,
         position: [d.position[0] + dx, d.position[1] + dy, d.position[2] + dz],
       })),
+      repetition,
     );
   }
 
@@ -265,7 +295,7 @@ export function FenetrePavillon() {
       else if (ctrl && touche === "a") setSelection(new Set(decorations.map((d) => d.cle)));
       else if (!ctrl && (e.key === "Delete" || e.key === "Backspace")) retirer();
       else if (e.key === "Escape") setSelection(new Set());
-      else if (!ctrl && fleches[touche] && choisies.length > 0) deplacer(...fleches[touche]);
+      else if (!ctrl && fleches[touche] && choisies.length > 0) deplacer(fleches[touche], e.repeat);
       else return;
       e.preventDefault();
     };
@@ -285,7 +315,7 @@ export function FenetrePavillon() {
   async function enregistrer(nom: string, remplacerFichier: boolean): Promise<void> {
     if (!ouverte || !dossier.dossier) return;
     await ecrireFichierDisposition(dossier.dossier, nom, texteCourant(), remplacerFichier);
-    setOuverte({ ...ouverte, fichier: nom, nom: sansExtension(nom) });
+    setOuverte({ ...ouverte, fichier: nom, dossier: dossier.dossier, nom: sansExtension(nom) });
     historique.marquerEnregistre();
     setModale(null);
     setAnnonce(`Enregistrée dans ${nom}`);
@@ -295,7 +325,7 @@ export function FenetrePavillon() {
   function exporter() {
     if (!ouverte) return;
     setErreur(null);
-    exporterDisposition(nomDeFichier(ouverte.nom), dossier.dossier, texteCourant())
+    exporterDisposition(nomDeFichier(ouverte.nom), texteCourant())
       .then((chemin) => {
         if (chemin) setAnnonce(`Exportée vers ${chemin}`);
       })
@@ -364,7 +394,7 @@ export function FenetrePavillon() {
       </p>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-[340px] shrink-0 flex-col border-r border-rule">
+        <aside className="flex w-xs shrink-0 flex-col border-r border-rule">
           <nav aria-label="Colonne" className="flex border-b border-hairline">
             {(["dispositions", "decorations"] as const).map((o) => (
               <button
@@ -381,7 +411,11 @@ export function FenetrePavillon() {
             ))}
           </nav>
           {onglet === "dispositions" ? (
-            <ListeDispositions dossier={dossier} courant={ouverte?.fichier ?? null} onOuvrir={chargerFichier} />
+            <ListeDispositions
+              dossier={dossier}
+              courant={ouverte && ouverte.dossier === dossier.dossier ? ouverte.fichier : null}
+              onOuvrir={chargerFichier}
+            />
           ) : (
             <ListeSortes
               sortes={sortes}
@@ -459,7 +493,7 @@ export function FenetrePavillon() {
                 />
               </div>
             </section>
-            <aside className="flex w-[400px] shrink-0 flex-col border-l border-rule">
+            <aside className="flex w-sm shrink-0 flex-col border-l border-rule">
               {catalogue ? (
                 <CataloguePavillon onChoisir={ajouter} onFermer={() => setCatalogue(false)} />
               ) : (
@@ -512,6 +546,16 @@ export function FenetrePavillon() {
         />
       ) : null}
     </div>
+  );
+}
+
+/** Deux états d'une décoration à la même place, à la même taille. */
+function memePlace(a: Decoration, b: Decoration): boolean {
+  return (
+    a.id === b.id &&
+    a.echelle === b.echelle &&
+    a.position.every((v, i) => v === b.position[i]) &&
+    a.rotation.every((v, i) => v === b.rotation[i])
   );
 }
 
@@ -568,17 +612,18 @@ type Dossier = {
   rafraichir: () => Promise<void>;
 };
 
-/** Le dossier des dispositions : celui qu'on a choisi, à défaut celui où le
- *  jeu les range sur cette machine. La liste se relit quand la fenêtre
- *  reprend le focus : on revient d'un export fait dans le jeu. */
+/** Le dossier des dispositions, tenu par Rust : celui qu'on a choisi, à
+ *  défaut celui où le jeu les range sur cette machine. L'écran ne fait que
+ *  le montrer. La liste se relit quand la fenêtre reprend le focus : on
+ *  revient d'un export fait dans le jeu. */
 function useDossier(): Dossier {
   const [dossier, setDossier] = useState<string | null>(null);
   const [fichiers, setFichiers] = useState<FichierDisposition[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
 
-  const lire = useCallback(async (chemin: string) => {
+  const lire = useCallback(async () => {
     try {
-      const lus = await listerDispositions(chemin);
+      const lus = await listerDispositions();
       lus.sort((a, b) => a.nom.localeCompare(b.nom, "fr-FR"));
       setFichiers(lus);
       setErreur(null);
@@ -591,12 +636,10 @@ function useDossier(): Dossier {
   useEffect(() => {
     let parti = false;
     (async () => {
-      const range = await lireDossierDispositions();
-      const chemin = range ?? (await dossierParDefaut());
+      const chemin = await dossierDispositions();
       if (parti || !chemin) return;
       setDossier(chemin);
-      if (!range) await ecrireDossierDispositions(chemin);
-      await lire(chemin);
+      await lire();
     })().catch((cause) => console.error("le dossier des dispositions ne se lit pas", cause));
     return () => {
       parti = true;
@@ -605,24 +648,23 @@ function useDossier(): Dossier {
 
   useEffect(() => {
     if (!dossier) return;
-    const relire = () => void lire(dossier);
+    const relire = () => void lire();
     window.addEventListener("focus", relire);
     return () => window.removeEventListener("focus", relire);
   }, [dossier, lire]);
 
   const choisir = useCallback(async () => {
     try {
-      const chemin = await choisirDossier(dossier);
+      const chemin = await choisirDossier();
       if (!chemin) return;
       setDossier(chemin);
-      await ecrireDossierDispositions(chemin);
-      await lire(chemin);
+      await lire();
     } catch (cause) {
       setErreur(phrase(cause, "Ce dossier ne se choisit pas."));
     }
-  }, [dossier, lire]);
+  }, [lire]);
 
-  const rafraichir = useCallback(() => (dossier ? lire(dossier) : Promise.resolve()), [dossier, lire]);
+  const rafraichir = useCallback(() => (dossier ? lire() : Promise.resolve()), [dossier, lire]);
 
   return { dossier, fichiers, erreur, choisir, rafraichir };
 }
@@ -796,7 +838,7 @@ function nomLibre(base: string, fichiers: FichierDisposition[]): string {
 
 /** Par défaut, un nouveau fichier : on ne perd pas l'original sans l'avoir
  *  demandé. Remplacer ne s'offre que pour une disposition lue dans le
- *  dossier. */
+ *  dossier courant. */
 function ModaleEnregistrer({
   ouverte,
   dossier,
@@ -808,11 +850,14 @@ function ModaleEnregistrer({
   onEnregistrer: (nom: string, remplacer: boolean) => Promise<void>;
   onFermer: () => void;
 }) {
-  const [remplacer, setRemplacer] = useState(false);
+  const [remplacerVoulu, setRemplacer] = useState(false);
   const [nom, setNom] = useState(() => nomLibre(ouverte.nom, dossier.fichiers));
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
-  const peutRemplacer = ouverte.fichier !== null;
+  // Choisir un autre dossier depuis la boîte retire « remplacer » : le
+  // fichier d'origine n'y est pas.
+  const peutRemplacer = ouverte.fichier !== null && ouverte.dossier === dossier.dossier;
+  const remplacer = remplacerVoulu && peutRemplacer;
   const nomVide = !remplacer && nom.trim().replace(/\.xml$/i, "").trim() === "";
 
   async function soumettre(evenement?: FormEvent) {
@@ -856,11 +901,11 @@ function ModaleEnregistrer({
                 name="mode"
                 checked={!remplacer}
                 onChange={() => setRemplacer(false)}
-                className="size-[18px] accent-[var(--crimson)]"
+                className="size-5 accent-[var(--crimson)]"
               />
               Nouveau fichier
             </span>
-            <span className="flex items-center gap-2 pl-[30px]">
+            <span className="flex items-center gap-2 pl-8">
               <Input
                 aria-label="Nom du fichier"
                 value={nom}
@@ -882,7 +927,7 @@ function ModaleEnregistrer({
                 name="mode"
                 checked={remplacer}
                 onChange={() => setRemplacer(true)}
-                className="size-[18px] accent-[var(--crimson)]"
+                className="size-5 accent-[var(--crimson)]"
               />
               {`Remplacer ${ouverte.fichier}`}
             </label>
@@ -988,7 +1033,7 @@ function BarreArchive({ archive }: { archive: Archive }) {
 
   return (
     <form onSubmit={soumettre} className="flex flex-wrap items-end gap-3 border-b border-rule px-6 py-3">
-      <div className="flex min-w-[320px] flex-1 flex-col gap-2">
+      <div className="flex min-w-xs flex-1 flex-col gap-2">
         <Label htmlFor="archive-gw2">Archive du jeu (Gw2.dat)</Label>
         <Input
           id="archive-gw2"

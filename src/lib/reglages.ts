@@ -21,7 +21,6 @@ const CLE_ELEMENTS_OUVERTS = "elementsOuverts";
 const CLE_CARTES = "cartes";
 const CLE_OPACITE = "opacite";
 const CLE_ARCHIVE = "archiveGw2";
-const CLE_DOSSIER_DISPOSITIONS = "dossierDispositions";
 
 /** L'opacité du fond des éléments, en pourcent. Le plancher garde un fond qui
  *  se voit encore : à zéro, le texte flotterait sur le jeu sans rien derrière. */
@@ -131,18 +130,6 @@ export async function lireArchive(): Promise<ArchiveRangee | null> {
 
 export async function ecrireArchive(archive: ArchiveRangee): Promise<void> {
   await (await lireMagasin()).set(CLE_ARCHIVE, archive);
-}
-
-/** Le dossier où l'éditeur de pavillon lit et écrit les dispositions. Il
- *  change d'une machine à l'autre — les Documents vivent parfois sous
- *  OneDrive, ou sur un autre disque —, d'où un réglage. */
-export async function lireDossierDispositions(): Promise<string | null> {
-  const dossier = await (await lireMagasin()).get<string>(CLE_DOSSIER_DISPOSITIONS);
-  return typeof dossier === "string" && dossier ? dossier : null;
-}
-
-export async function ecrireDossierDispositions(dossier: string): Promise<void> {
-  await (await lireMagasin()).set(CLE_DOSSIER_DISPOSITIONS, dossier);
 }
 
 function bornerOpacite(valeur: unknown): number {

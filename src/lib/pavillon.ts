@@ -173,7 +173,9 @@ const PAR_REQUETE = 200;
 
 /** Toutes les décorations que l'API connaît, pour le catalogue : la liste
  *  des identifiants, puis leurs fiches par lots. */
-export async function lireCatalogue(): Promise<FicheDecoration[]> {
+/** Toutes les décorations de l'API. `complet` est faux si un lot de fiches
+ *  n'a pas répondu : le catalogue se montre, mais ne se garde pas. */
+export async function lireCatalogue(): Promise<{ fiches: FicheDecoration[]; complet: boolean }> {
   const reponse = await tauriFetch(`${API_GW2}/homestead/decorations`, {
     headers: { Accept: "application/json" },
   });
@@ -181,7 +183,8 @@ export async function lireCatalogue(): Promise<FicheDecoration[]> {
     throw new Error(`L'API du jeu ne liste pas les décorations (HTTP ${reponse.status}).`);
   }
   const ids = (await reponse.json()) as number[];
-  return [...(await lireFiches(ids)).values()];
+  const lues = await lireFiches(ids);
+  return { fiches: [...lues.values()], complet: ids.every((id) => lues.has(id)) };
 }
 
 export type Categorie = { id: number; name: string };

@@ -14,42 +14,42 @@ export type FichierDisposition = {
   modifie: number | null;
 };
 
-/** `Documents\Guild Wars 2\Homesteads`, là où le jeu les range quand on ne lui
- *  dit rien, s'il existe sur cette machine. */
-export function dossierParDefaut(): Promise<string | null> {
-  return invoke<string | null>("dossier_par_defaut");
+/** Le dossier des dispositions, tenu par Rust : celui choisi la dernière
+ *  fois, à défaut `Documents\Guild Wars 2\Homesteads` s'il existe sur cette
+ *  machine. Le front ne fait que l'afficher : aucun chemin n'en repart. */
+export function dossierDispositions(): Promise<string | null> {
+  return invoke<string | null>("dossier_dispositions");
 }
 
-/** La boîte de choix de dossier du système ; `null` si on la referme. */
-export function choisirDossier(depart: string | null): Promise<string | null> {
-  return invoke<string | null>("choisir_dossier", { depart });
+/** La boîte de choix de dossier du système ; le dossier choisi devient
+ *  celui des dispositions. `null` si on la referme. */
+export function choisirDossier(): Promise<string | null> {
+  return invoke<string | null>("choisir_dossier");
 }
 
-export function listerDispositions(dossier: string): Promise<FichierDisposition[]> {
-  return invoke<FichierDisposition[]>("lister_dispositions", { dossier });
+export function listerDispositions(): Promise<FichierDisposition[]> {
+  return invoke<FichierDisposition[]>("lister_dispositions");
 }
 
-export function lireFichierDisposition(dossier: string, nom: string): Promise<string> {
-  return invoke<string>("lire_disposition", { dossier, nom });
+export function lireFichierDisposition(nom: string): Promise<string> {
+  return invoke<string>("lire_disposition", { nom });
 }
 
-/** Sans `remplacer`, un fichier du même nom fait refuser l'écriture. */
+/** Sans `remplacer`, un fichier du même nom fait refuser l'écriture.
+ *  `attendu` est le dossier que l'écran montre : s'il a changé entre-temps,
+ *  Rust refuse plutôt que d'écrire ailleurs. */
 export function ecrireFichierDisposition(
-  dossier: string,
+  attendu: string,
   nom: string,
   contenu: string,
   remplacer: boolean,
 ): Promise<void> {
-  return invoke<void>("ecrire_disposition", { dossier, nom, contenu, remplacer });
+  return invoke<void>("ecrire_disposition", { attendu, nom, contenu, remplacer });
 }
 
 /** Le chemin écrit, ou `null` si la boîte s'est refermée sans choix. */
-export function exporterDisposition(
-  nom: string,
-  depart: string | null,
-  contenu: string,
-): Promise<string | null> {
-  return invoke<string | null>("exporter_disposition", { nom, depart, contenu });
+export function exporterDisposition(nom: string, contenu: string): Promise<string | null> {
+  return invoke<string | null>("exporter_disposition", { nom, contenu });
 }
 
 /** Le nom sous lequel une disposition s'écrit : celui qu'on tape, sans
