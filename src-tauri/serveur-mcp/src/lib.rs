@@ -23,10 +23,10 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
@@ -42,9 +42,16 @@ pub const CHEMIN: &str = "/mcp";
 const CORPS_MAX: usize = 24 * 1024 * 1024;
 const ENTETES_MAX: usize = 16 * 1024;
 
-/// Le temps qu'on laisse à un client pour écrire sa requête, et pour lire la
-/// réponse. L'exécution d'un outil n'y compte pas.
+/// Le temps qu'on laisse à un client pour écrire sa requête **entière**, et
+/// pour lire la réponse. L'exécution d'un outil n'y compte pas. Un délai par
+/// lecture ne suffirait pas : un octet toutes les vingt-neuf secondes tiendrait
+/// un fil des heures.
 const DELAI_RESEAU: Duration = Duration::from_secs(30);
+
+/// Les requêtes servies de front. Au-delà, la connexion se ferme sans
+/// réponse : un client local en tient une ou deux, et chaque requête coûte un
+/// fil.
+const CONNEXIONS_MAX: usize = 16;
 
 /// Le rythme auquel le fil d'écoute regarde s'il doit s'arrêter.
 const VEILLE: Duration = Duration::from_millis(100);
@@ -99,16 +106,25 @@ impl Serveur {
         });
 
         let arret_fil = arret.clone();
+        let en_cours = Arc::new(AtomicUsize::new(0));
         let fil = std::thread::Builder::new()
             .name("serveur-mcp".into())
             .spawn(move || {
                 while !arret_fil.load(Ordering::Relaxed) {
                     match ecoute.accept() {
                         Ok((flux, _)) => {
+                            if en_cours.fetch_add(1, Ordering::AcqRel) >= CONNEXIONS_MAX {
+                                en_cours.fetch_sub(1, Ordering::AcqRel);
+                                continue;
+                            }
+                            let place = Place(en_cours.clone());
                             let contexte = contexte.clone();
                             let lance = std::thread::Builder::new()
                                 .name("requete-mcp".into())
-                                .spawn(move || servir(flux, &contexte));
+                                .spawn(move || {
+                                    let _place = place;
+                                    servir(flux, &contexte)
+                                });
                             if let Err(erreur) = lance {
                                 eprintln!("une requête MCP n'a pas pu être servie : {erreur}");
                             }
@@ -145,6 +161,15 @@ impl Drop for Serveur {
     }
 }
 
+/// Une requête en cours : rendue en partant, quoi qu'il arrive au fil.
+struct Place(Arc<AtomicUsize>);
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 struct Contexte {
     port: u16,
     jeton: String,
@@ -153,13 +178,6 @@ struct Contexte {
 }
 
 /* --- HTTP ------------------------------------------------------------------- */
-
-struct Requete {
-    methode: String,
-    chemin: String,
-    entetes: HashMap<String, String>,
-    corps: Vec<u8>,
-}
 
 struct Reponse {
     statut: u16,
@@ -203,19 +221,43 @@ fn servir(flux: TcpStream, contexte: &Contexte) {
     // borné dans le temps.
     let prepare = flux
         .set_nonblocking(false)
-        .and_then(|()| flux.set_read_timeout(Some(DELAI_RESEAU)))
         .and_then(|()| flux.set_write_timeout(Some(DELAI_RESEAU)));
     if prepare.is_err() {
         return;
     }
-    let reponse = match lire_requete(&flux) {
-        Ok(requete) => repondre(&requete, contexte),
+    let borne = Borne {
+        flux: &flux,
+        fin: Instant::now() + DELAI_RESEAU,
+    };
+    let reponse = match lire_requete(borne, contexte) {
+        Ok(corps) => repondre(&corps, contexte),
         Err(reponse) => reponse,
     };
     let _ = ecrire_reponse(&flux, reponse);
 }
 
-fn lire_requete(flux: &TcpStream) -> Result<Requete, Reponse> {
+/// Le flux, dont chaque lecture n'a que le temps qui reste à la requête.
+struct Borne<'a> {
+    flux: &'a TcpStream,
+    fin: Instant,
+}
+
+impl Read for Borne<'_> {
+    fn read(&mut self, tampon: &mut [u8]) -> io::Result<usize> {
+        let reste = self
+            .fin
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "délai écoulé"))?;
+        self.flux.set_read_timeout(Some(reste))?;
+        (&*self.flux).read(tampon)
+    }
+}
+
+/// Lit la requête. Le corps ne se lit — ni ne s'alloue — qu'une fois l'hôte,
+/// l'origine et le jeton vérifiés : un inconnu n'obtient pas vingt-quatre
+/// mégaoctets en annonçant leur longueur.
+fn lire_requete(flux: Borne<'_>, contexte: &Contexte) -> Result<Vec<u8>, Reponse> {
     let mut lecteur = BufReader::new(flux);
     let mut ligne = String::new();
     let mut lus = 0usize;
@@ -253,6 +295,8 @@ fn lire_requete(flux: &TcpStream) -> Result<Requete, Reponse> {
         entetes.insert(nom.trim().to_ascii_lowercase(), valeur.trim().to_string());
     }
 
+    controler(&methode, &chemin, &entetes, contexte)?;
+
     // Le corps se lit sur sa longueur annoncée. Un client local écrit un
     // corps entier ; le découpage en morceaux n'est pas servi.
     if entetes.contains_key("transfer-encoding") {
@@ -270,12 +314,7 @@ fn lire_requete(flux: &TcpStream) -> Result<Requete, Reponse> {
         .read_exact(&mut corps)
         .map_err(|_| Reponse::vide(400))?;
 
-    Ok(Requete {
-        methode,
-        chemin,
-        entetes,
-        corps,
-    })
+    Ok(corps)
 }
 
 fn ecrire_reponse(mut flux: &TcpStream, reponse: Reponse) -> io::Result<()> {
@@ -353,24 +392,33 @@ fn autorise(entete: Option<&String>, jeton: &str) -> bool {
         && egaux(recu.trim().as_bytes(), jeton.as_bytes())
 }
 
-fn repondre(requete: &Requete, contexte: &Contexte) -> Reponse {
-    if requete.chemin != CHEMIN {
-        return Reponse::vide(404);
+fn controler(
+    methode: &str,
+    chemin: &str,
+    entetes: &HashMap<String, String>,
+    contexte: &Contexte,
+) -> Result<(), Reponse> {
+    if chemin != CHEMIN {
+        return Err(Reponse::vide(404));
     }
-    if !hote_local(requete.entetes.get("host"), contexte.port) {
-        return Reponse::texte(403, "hôte refusé");
+    if !hote_local(entetes.get("host"), contexte.port) {
+        return Err(Reponse::texte(403, "hôte refusé"));
     }
-    if !origine_admise(requete.entetes.get("origin")) {
-        return Reponse::texte(403, "origine refusée");
+    if !origine_admise(entetes.get("origin")) {
+        return Err(Reponse::texte(403, "origine refusée"));
     }
-    if !autorise(requete.entetes.get("authorization"), &contexte.jeton) {
-        return Reponse::texte(401, "jeton absent ou faux").avec("WWW-Authenticate", "Bearer");
+    if !autorise(entetes.get("authorization"), &contexte.jeton) {
+        return Err(Reponse::texte(401, "jeton absent ou faux").avec("WWW-Authenticate", "Bearer"));
     }
-    if requete.methode != "POST" {
-        return Reponse::vide(405).avec("Allow", "POST");
+    if methode != "POST" {
+        return Err(Reponse::vide(405).avec("Allow", "POST"));
     }
+    Ok(())
+}
 
-    let message: Value = match serde_json::from_slice(&requete.corps) {
+/// Une requête vérifiée : son corps, message ou lot de messages JSON-RPC.
+fn repondre(corps: &[u8], contexte: &Contexte) -> Reponse {
+    let message: Value = match serde_json::from_slice(corps) {
         Ok(message) => message,
         Err(_) => {
             return Reponse::json(400, &erreur(Value::Null, -32700, "message JSON illisible"));
@@ -655,6 +703,23 @@ mod tests {
         let mut reponse = String::new();
         flux.read_to_string(&mut reponse).unwrap();
         assert!(reponse.starts_with("HTTP/1.1 404"));
+    }
+
+    #[test]
+    fn un_inconnu_est_refuse_avant_son_corps() {
+        let s = serveur();
+        let mut flux = TcpStream::connect(s.adresse()).unwrap();
+        // Une longueur annoncée, et rien derrière : la réponse part sans
+        // attendre le corps.
+        let tete = format!(
+            "POST {CHEMIN} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Length: 20000000\r\n\r\n",
+            s.adresse().port()
+        );
+        flux.write_all(tete.as_bytes()).unwrap();
+        flux.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut reponse = String::new();
+        flux.read_to_string(&mut reponse).unwrap();
+        assert!(reponse.starts_with("HTTP/1.1 401"), "{reponse}");
     }
 
     #[test]

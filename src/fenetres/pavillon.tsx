@@ -154,11 +154,11 @@ export function FenetrePavillon() {
 
   function ouvrirLue(lue: Disposition, fichier: string | null, depuis: string | null, nom: string) {
     setOuverte({ disposition: lue, fichier, dossier: depuis, nom });
-      historique.repartir(lue.decorations);
-      setSelection(new Set());
-      setCadrage((c) => c + 1);
-      setErreur(null);
-      setAnnonce(null);
+    historique.repartir(lue.decorations);
+    setSelection(new Set());
+    setCadrage((c) => c + 1);
+    setErreur(null);
+    setAnnonce(null);
   }
 
   function ouvrir(texte: string, fichier: string | null, depuis: string | null, nom: string) {
@@ -536,7 +536,7 @@ export function FenetrePavillon() {
         // Une image encore : la scène reconstruite avec les derniers modèles
         // se dessine avant le relevé.
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        if (Object.keys(reglage).length > 0) api.regler(reglage);
+        if (Object.keys(reglage).length > 0) api.regler(reglage, largeur / hauteur);
         const image = await api.capturer(largeur, hauteur);
         const courant = vivant.current;
         const reperes = courant.decorations.filter((d) => !(courant.modeles.get(d.id)?.length)).length;
@@ -568,20 +568,24 @@ export function FenetrePavillon() {
           if (!presentes.has(cle)) throw new ErreurOutil(`Clé inconnue : ${cle}.`);
           return cle;
         };
-        const parCle = new Map(v.decorations.map((d) => [d.cle, d]));
+        const avant = new Map(v.decorations.map((d) => [d.cle, d]));
+        // Seules les décorations que cet appel touche : les autres se
+        // reprennent telles qu'elles sont à la fin de l'appel.
+        const changees = new Map<number, Decoration>();
+        const courante = (cle: number) => changees.get(cle) ?? avant.get(cle)!;
         let modifiees = 0;
 
         for (const brut of tableauDe(args.modifier, "modifier")) {
           const m = objetDe(brut, "modifier");
-          const avant = parCle.get(verifier(entierDe(m.cle, "cle")))!;
-          parCle.set(avant.cle, {
-            ...avant,
-            position: m.position === undefined ? avant.position : tripletDe(m.position, "position"),
+          const d = courante(verifier(entierDe(m.cle, "cle")));
+          changees.set(d.cle, {
+            ...d,
+            position: m.position === undefined ? d.position : tripletDe(m.position, "position"),
             rotation:
               m.rotation === undefined
-                ? avant.rotation
+                ? d.rotation
                 : (tripletDe(m.rotation, "rotation").map(normaliserAngle) as [number, number, number]),
-            echelle: m.echelle === undefined ? avant.echelle : arrondirEchelle(positifDe(m.echelle, "echelle")),
+            echelle: m.echelle === undefined ? d.echelle : arrondirEchelle(positifDe(m.echelle, "echelle")),
           });
           modifiees += 1;
         }
@@ -590,10 +594,10 @@ export function FenetrePavillon() {
           const d = objetDe(args.deplacer, "deplacer");
           const [dx, dy, dz] = tripletDe(d.ecart, "ecart");
           for (const cle of listeDeCles(d.cles, "cles")) {
-            const avant = parCle.get(verifier(cle))!;
-            parCle.set(cle, {
-              ...avant,
-              position: [avant.position[0] + dx, avant.position[1] + dy, avant.position[2] + dz],
+            const p = courante(verifier(cle));
+            changees.set(cle, {
+              ...p,
+              position: [p.position[0] + dx, p.position[1] + dy, p.position[2] + dz],
             });
             modifiees += 1;
           }
@@ -629,7 +633,7 @@ export function FenetrePavillon() {
         // geste fait à la souris.
         const courantes = vivant.current.decorations;
         const suivantes = [
-          ...courantes.filter((d) => !retirees.has(d.cle)).map((d) => parCle.get(d.cle) ?? d),
+          ...courantes.filter((d) => !retirees.has(d.cle)).map((d) => changees.get(d.cle) ?? d),
           ...ajoutees,
         ];
         historique.appliquer(suivantes);

@@ -162,7 +162,9 @@ export type ApiScene = {
    *  construit une autre. */
   cadrage: number;
   camera: () => Camera;
-  regler: (reglage: ReglageCamera) => Camera;
+  /** `aspect` : celui de l'image à venir, quand le cadrage la prépare. Sans
+   *  lui, la distance est celle qui embrasse tout à l'écran. */
+  regler: (reglage: ReglageCamera, aspect?: number) => Camera;
   /** Une image PNG de la vue, en base 64, sans les poignées. */
   capturer: (largeur: number, hauteur: number) => Promise<string>;
   boites: (cles: Iterable<number>) => Map<number, Boite>;
@@ -513,7 +515,7 @@ export function ScenePavillon({
       return resultat;
     };
 
-    const regler = (reglage: ReglageCamera): Camera => {
+    const regler = (reglage: ReglageCamera, aspect = camera.aspect): Camera => {
       const avant = lireCamera();
       let cible = new THREE.Vector3().copy(orbite.target);
       let distance = avant.distance;
@@ -528,7 +530,7 @@ export function ScenePavillon({
         // Le champ le plus étroit des deux, pour qu'une vue haute comme une
         // vue large embrasse tout.
         const vertical = camera.fov * DEGRE;
-        const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * camera.aspect);
+        const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * aspect);
         distance = (rayon / Math.sin(Math.min(vertical, horizontal) / 2)) * 1.05;
       }
       if (reglage.cible) {
@@ -558,10 +560,12 @@ export function ScenePavillon({
     const capturer = async (largeur: number, hauteur: number): Promise<string> => {
       // Flottante : three.js n'encode en sRGB que ce qu'il dessine à l'écran,
       // une cible hors écran reçoit des couleurs linéaires, qu'on encode
-      // ensuite sans les écraser sur huit bits.
-      const cible = new THREE.WebGLRenderTarget(largeur, hauteur, { type: THREE.FloatType, samples: 4 });
+      // ensuite sans les écraser sur huit bits. Demi-précision : elle suffit
+      // à huit bits de sortie, et tous les pilotes la multi-échantillonnent,
+      // ce que la pleine ne garantit pas.
+      const cible = new THREE.WebGLRenderTarget(largeur, hauteur, { type: THREE.HalfFloatType, samples: 4 });
       const aspect = camera.aspect;
-      const pixels = new Float32Array(largeur * hauteur * 4);
+      const pixels = new Uint16Array(largeur * hauteur * 4);
       aide.visible = false;
       try {
         camera.aspect = largeur / hauteur;
@@ -760,16 +764,16 @@ function versSrgb(c: number): number {
   return Math.round(Math.min(1, Math.max(0, v)) * 255);
 }
 
-/** Des pixels linéaires lus de bas en haut, en PNG base 64 de haut en bas. */
-async function encoderPng(pixels: Float32Array, largeur: number, hauteur: number): Promise<string> {
+/** Des pixels linéaires en demi-flottants, lus de bas en haut, en PNG base 64 de haut en bas. */
+async function encoderPng(pixels: Uint16Array, largeur: number, hauteur: number): Promise<string> {
   const image = new ImageData(largeur, hauteur);
   for (let y = 0; y < hauteur; y++) {
     const source = (hauteur - 1 - y) * largeur * 4;
     const dest = y * largeur * 4;
     for (let x = 0; x < largeur * 4; x += 4) {
-      image.data[dest + x] = versSrgb(pixels[source + x]);
-      image.data[dest + x + 1] = versSrgb(pixels[source + x + 1]);
-      image.data[dest + x + 2] = versSrgb(pixels[source + x + 2]);
+      image.data[dest + x] = versSrgb(THREE.DataUtils.fromHalfFloat(pixels[source + x]));
+      image.data[dest + x + 1] = versSrgb(THREE.DataUtils.fromHalfFloat(pixels[source + x + 1]));
+      image.data[dest + x + 2] = versSrgb(THREE.DataUtils.fromHalfFloat(pixels[source + x + 2]));
       image.data[dest + x + 3] = 255;
     }
   }

@@ -63,8 +63,20 @@ pub struct Mcp {
     etat: Mutex<EtatServeur>,
     attentes: Mutex<HashMap<u64, Attente>>,
     suivant: AtomicU64,
-    /// Vrai quand la fenêtre de l'éditeur écoute les appels.
+    /// Vrai quand la fenêtre de l'éditeur écoute les appels ; retombe quand
+    /// sa page se recharge (`page_chargee`).
     pret: AtomicBool,
+    /// Un appel à la fois. L'éditeur a un état — caméra, sélection,
+    /// historique — et deux appels de front se le disputeraient : une
+    /// caméra réglée par l'un pendant que l'autre relève son image, deux
+    /// modifications dont la seconde effacerait la première.
+    file: Mutex<()>,
+}
+
+/// La page de l'éditeur commence à se charger : elle n'écoute plus, et un
+/// appel émis maintenant se perdrait jusqu'à ce qu'elle se redise prête.
+pub fn page_chargee(app: &AppHandle) {
+    app.state::<Mcp>().pret.store(false, Ordering::Relaxed);
 }
 
 /// Ce que l'éditeur montre du serveur.
@@ -270,8 +282,12 @@ impl Relais {
 
 impl Outils for Relais {
     fn appeler(&self, nom: &str, arguments: Value) -> Resultat {
-        self.fenetre()?;
         let mcp = self.app.state::<Mcp>();
+        let _tour = mcp
+            .file
+            .lock()
+            .map_err(|_| "le serveur MCP est inaccessible")?;
+        self.fenetre()?;
         let id = mcp.suivant.fetch_add(1, Ordering::Relaxed);
         let (envoi, reception) = mpsc::channel();
         mcp.attentes
@@ -364,12 +380,30 @@ fn objet(proprietes: serde_json::Map<String, Value>, requis: &[&str]) -> Value {
     json!({ "type": "object", "properties": proprietes, "required": requis, "additionalProperties": false })
 }
 
-fn outil(nom: &str, description: &str, schema: Value, lecture: bool) -> Value {
+/// Ce qu'un outil fait à l'éditeur : un client s'en sert pour décider ce
+/// qu'il exécute sans demander.
+#[derive(Clone, Copy)]
+enum Effet {
+    /// Ne change rien.
+    Lecture,
+    /// Change la vue ou la disposition, sans rien perdre : un geste
+    /// s'annule, une caméra se règle à nouveau.
+    Modification,
+    /// Peut perdre quelque chose : des modifications abandonnées, des
+    /// décorations retirées.
+    Destruction,
+}
+
+fn outil(nom: &str, description: &str, schema: Value, effet: Effet) -> Value {
     json!({
         "name": nom,
         "description": description,
         "inputSchema": schema,
-        "annotations": { "readOnlyHint": lecture, "destructiveHint": false, "openWorldHint": false },
+        "annotations": {
+            "readOnlyHint": matches!(effet, Effet::Lecture),
+            "destructiveHint": matches!(effet, Effet::Destruction),
+            "openWorldHint": false,
+        },
     })
 }
 
@@ -475,42 +509,42 @@ fn description(app: &AppHandle) -> Description {
         version: app.package_info().version.to_string(),
         instructions: INSTRUCTIONS.into(),
         outils: vec![
-            outil("etat_editeur", "La disposition ouverte, l'archive, les modèles lus, la sélection et la caméra.", vide(), true),
-            outil("lister_dispositions", "Les fichiers .xml du dossier des dispositions.", vide(), true),
+            outil("etat_editeur", "La disposition ouverte, l'archive, les modèles lus, la sélection et la caméra.", vide(), Effet::Lecture),
+            outil("lister_dispositions", "Les fichiers .xml du dossier des dispositions.", vide(), Effet::Lecture),
             outil(
                 "ouvrir_disposition",
                 "Ouvre une disposition, par son nom de fichier dans le dossier ou par son texte XML. La caméra se cadre sur elle.",
                 objet(ouvrir, &[]),
-                false,
+                Effet::Destruction,
             ),
             outil(
                 "lister_decorations",
                 "Les décorations de la disposition ouverte : clé, identifiant, nom, position, rotation, échelle. Sans filtre, toutes.",
                 objet(lister, &[]),
-                true,
+                Effet::Lecture,
             ),
             outil(
                 "capturer_vue",
                 "Une image PNG de la scène. Les réglages de caméra donnés s'appliquent d'abord, et restent.",
                 objet(capture, &[]),
-                true,
+                Effet::Modification,
             ),
-            outil("regler_camera", "Déplace la caméra de l'éditeur, sans relevé.", objet(proprietes_camera(), &[]), true),
-            outil("choisir", "Choisit des décorations : elles s'allument en carmin. Une liste vide vide la sélection.", objet(choisir, &["cles"]), true),
+            outil("regler_camera", "Déplace la caméra de l'éditeur, sans relevé.", objet(proprietes_camera(), &[]), Effet::Modification),
+            outil("choisir", "Choisit des décorations : elles s'allument en carmin. Une liste vide vide la sélection.", objet(choisir, &["cles"]), Effet::Modification),
             outil(
                 "modifier_decorations",
                 "Modifie, déplace, ajoute ou retire des décorations, en un seul geste d'historique. Rend les clés des ajoutées.",
                 objet(modifier, &[]),
-                false,
+                Effet::Destruction,
             ),
-            outil("annuler", "Défait le dernier geste.", vide(), false),
-            outil("retablir", "Refait le dernier geste défait.", vide(), false),
-            outil("lire_xml", "La disposition ouverte, au format de l'export du jeu, telle qu'elle s'enregistrerait.", vide(), true),
+            outil("annuler", "Défait le dernier geste.", vide(), Effet::Modification),
+            outil("retablir", "Refait le dernier geste défait.", vide(), Effet::Modification),
+            outil("lire_xml", "La disposition ouverte, au format de l'export du jeu, telle qu'elle s'enregistrerait.", vide(), Effet::Lecture),
             outil(
                 "enregistrer_disposition",
                 "Écrit la disposition ouverte dans un nouveau fichier du dossier des dispositions. N'écrase jamais un fichier.",
                 objet(enregistrer, &["nom"]),
-                false,
+                Effet::Modification,
             ),
         ],
     }
