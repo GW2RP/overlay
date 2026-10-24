@@ -20,6 +20,7 @@ const CLE_FENETRES = "fenetres";
 const CLE_ELEMENTS_OUVERTS = "elementsOuverts";
 const CLE_CARTES = "cartes";
 const CLE_OPACITE = "opacite";
+const CLE_ARCHIVE = "archiveGw2";
 
 /** L'opacité du fond des éléments, en pourcent. Le plancher garde un fond qui
  *  se voit encore : à zéro, le texte flotterait sur le jeu sans rien derrière. */
@@ -116,6 +117,19 @@ export async function ecrireCarte<T>(id: number, carte: T): Promise<void> {
   const store = await lireMagasin();
   const cartes = (await store.get<Record<string, T>>(CLE_CARTES)) ?? {};
   await store.set(CLE_CARTES, { ...cartes, [String(id)]: carte });
+}
+
+/** L'archive du jeu que l'éditeur de pavillon a ouverte : son chemin, et le
+ *  premier fichier de son contenu, pour y aller droit la fois suivante. */
+export type ArchiveRangee = { chemin: string; paquet: number | null };
+
+export async function lireArchive(): Promise<ArchiveRangee | null> {
+  const rangee = await (await lireMagasin()).get<ArchiveRangee>(CLE_ARCHIVE);
+  return rangee && typeof rangee.chemin === "string" ? rangee : null;
+}
+
+export async function ecrireArchive(archive: ArchiveRangee): Promise<void> {
+  await (await lireMagasin()).set(CLE_ARCHIVE, archive);
 }
 
 function bornerOpacite(valeur: unknown): number {

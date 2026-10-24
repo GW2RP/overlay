@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Ce que les fenêtres de l'overlay ont le droit de faire : ouvrir et régler leurs fenêtres transparentes, parler au hub et à l'API du jeu, ranger leurs réglages, écouter le raccourci d'édition.",
-  "windows": ["principale", "overlay-*"],
+  "description": "Ce que les fenêtres de l'overlay ont le droit de faire : ouvrir et régler leurs fenêtres transparentes et l'éditeur de pavillon, parler au hub et à l'API du jeu, ranger leurs réglages, écouter le raccourci d'édition.",
+  "windows": ["principale", "overlay-*", "pavillon"],
   "permissions": [
     "core:default",
     "core:event:default",

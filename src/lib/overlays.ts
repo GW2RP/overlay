@@ -45,6 +45,14 @@ export type ElementId = Element["id"];
  *  bord : elle s'ouvre depuis « À proximité », et se ferme par sa croix. */
 export const FENETRE_FICHE = { label: "overlay-fiche", titre: "Fiche du lieu", ancre: "#/fiche" } as const;
 
+/** L'éditeur de pavillon : une fenêtre à chrome, ni élément ni fiche. Elle
+ *  s'ouvre depuis la principale et se range quand on la ferme. */
+export const FENETRE_PAVILLON = { label: "pavillon", titre: "Éditeur de pavillon", ancre: "#/pavillon" } as const;
+
+export function ouvrirPavillon(): Promise<void> {
+  return invoke("ouvrir_pavillon");
+}
+
 export function elementParAncre(ancre: string): Element | null {
   return ELEMENTS.find((element) => element.ancre === ancre) ?? null;
 }

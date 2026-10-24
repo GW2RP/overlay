@@ -1,0 +1,16 @@
+[package]
+name = "archive-gw2"
+version = "0.1.0"
+description = "Lecture de l'archive Gw2.dat : index, décompression, fichiers PF et contenu de jeu."
+authors = ["La communauté GW2RP"]
+edition = "2021"
+publish = false
+
+# Aucune dépendance : le crate se compile partout, et pas seulement sous la
+# chaîne MSVC qu'exige le binaire Tauri. C'est ce qui permet d'en lancer les
+# exemples et les tests hors de Windows, sur une copie de l'archive.
+[dependencies]
+
+# Pour les exemples seulement : l'outil de découverte lit et écrit du JSON.
+[dev-dependencies]
+serde_json = "1"

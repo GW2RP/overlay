@@ -1,6 +1,6 @@
 [package]
 name = "gw2rp-overlay"
-version = "1.4.1"
+version = "1.5.0"
 description = "L'overlay de jeu du hub GW2RP Nexus : météo et lieux de RP à l'emplacement du personnage."
 authors = ["La communauté GW2RP"]
 edition = "2021"
@@ -12,6 +12,12 @@ publish = false
 # fait échouer l'édition de liens sous Windows.
 name = "gw2rp_overlay_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Le lecteur de l'archive du jeu vit dans son propre crate, membre de l'espace
+# de travail : un seul verrou, un seul dossier de compilation, et `fmt`,
+# `clippy` et `test` le couvrent avec `--workspace`.
+[workspace]
+members = [".", "archive-gw2"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -32,6 +38,9 @@ tauri-plugin-global-shortcut = "2.3"
 tauri-plugin-updater = "2.12"
 # Les liens vers le hub s'ouvrent dans le navigateur, jamais dans la vue web.
 tauri-plugin-opener = "2.5"
+# La lecture de l'archive du jeu, pour les modèles du pavillon : un crate à
+# part, sans dépendance, qui se compile et se teste hors de Windows.
+archive-gw2 = { path = "archive-gw2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

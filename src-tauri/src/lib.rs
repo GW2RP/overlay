@@ -8,6 +8,7 @@
 
 mod mumble;
 mod overlays;
+mod pavillon;
 mod plateau;
 
 use std::time::Duration;
@@ -16,6 +17,12 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
 
 use overlays::{Edition, FicheCourante, Verrous, Zone, FENETRE_PRINCIPALE};
+
+/// L'éditeur de pavillon : une fenêtre à chrome, comme la principale, qui se
+/// range quand on la ferme pour se rouvrir telle qu'on l'avait laissée. Elle
+/// ne naît qu'à la première demande (`create: false`) : née au démarrage,
+/// elle chargerait three.js et rouvrirait l'archive du jeu pour rien.
+const FENETRE_PAVILLON: &str = "pavillon";
 
 /// Émis à toutes les fenêtres à chaque lecture du lien, avec `Option<Lien>`.
 const EVENEMENT_MUMBLE: &str = "mumble";
@@ -83,6 +90,30 @@ fn fiche_courante(app: AppHandle) -> Option<String> {
     overlays::fiche_courante(&app)
 }
 
+/// Asynchrone : créer une fenêtre depuis une commande synchrone bloque sous
+/// Windows.
+#[tauri::command]
+async fn ouvrir_pavillon(app: AppHandle) -> Result<(), String> {
+    let fenetre = match app.get_webview_window(FENETRE_PAVILLON) {
+        Some(fenetre) => fenetre,
+        None => {
+            let config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == FENETRE_PAVILLON)
+                .ok_or_else(|| "l'éditeur de pavillon n'est pas déclaré".to_string())?;
+            tauri::WebviewWindowBuilder::from_config(&app, config)
+                .and_then(|constructeur| constructeur.build())
+                .map_err(|erreur| erreur.to_string())?
+        }
+    };
+    fenetre.show().map_err(|erreur| erreur.to_string())?;
+    let _ = fenetre.unminimize();
+    fenetre.set_focus().map_err(|erreur| erreur.to_string())
+}
+
 /// Une lecture du lien à la demande, pour une fenêtre qui s'ouvre et ne veut
 /// pas attendre le prochain quart de seconde.
 #[tauri::command]
@@ -129,6 +160,7 @@ pub fn run() {
         .manage(Edition::default())
         .manage(Verrous::default())
         .manage(FicheCourante::default())
+        .manage(pavillon::Pavillon::default())
         .invoke_handler(tauri::generate_handler![
             lire_edition,
             regler_edition,
@@ -141,13 +173,17 @@ pub fn run() {
             overlay_verrouille,
             ouvrir_fiche,
             fiche_courante,
+            ouvrir_pavillon,
+            pavillon::ouvrir_archive,
+            pavillon::modele_decoration,
             lire_mumble,
         ])
         .on_window_event(|fenetre, evenement| {
             // Fermer la fenêtre principale la range au lieu de la détruire :
             // l'application continue derrière son icône, et les overlays
-            // restent à l'écran. Quitter est un choix du plateau.
-            if fenetre.label() == FENETRE_PRINCIPALE {
+            // restent à l'écran. Quitter est un choix du plateau. L'éditeur
+            // de pavillon se range de même : détruit, il ne se rouvrirait pas.
+            if fenetre.label() == FENETRE_PRINCIPALE || fenetre.label() == FENETRE_PAVILLON {
                 if let WindowEvent::CloseRequested { api, .. } = evenement {
                     api.prevent_close();
                     let _ = fenetre.hide();

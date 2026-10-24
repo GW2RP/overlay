@@ -57,6 +57,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "archive-gw2"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1591,8 +1598,9 @@ dependencies = [
 
 [[package]]
 name = "gw2rp-overlay"
-version = "1.4.1"
+version = "1.5.0"
 dependencies = [
+ "archive-gw2",
  "serde",
  "serde_json",
  "tauri",

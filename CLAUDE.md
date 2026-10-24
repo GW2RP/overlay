@@ -263,10 +263,58 @@ relu. Le greffon propage les changements d'une fenêtre à l'autre :
 `surChangement` suffit pour qu'un overlay suive ce que la principale a réglé, et
 pour qu'une déconnexion faite dans une fenêtre se voie dans les autres.
 
+## L'éditeur de pavillon
+
+**Une fenêtre à part, à chrome** (`pavillon`, `#/pavillon`), qu'on ouvre depuis
+la principale et qui n'est pas un élément : elle ne se pose pas sur le jeu, elle
+se lit à côté. On y importe la disposition que le jeu exporte en XML, et on la
+voit en trois dimensions, la liste de ses sortes à côté. Elle charge three.js
+**à part** (`React.lazy`) : les éléments d'overlay ne le téléchargent pas. Et
+elle ne naît qu'à la première demande (`create: false`, construite par
+`ouvrir_pavillon`) : née cachée au démarrage, elle rouvrirait l'archive à
+chaque lancement sans qu'on ait rien demandé.
+
+Un fichier dont une décoration est illisible **se refuse entier** : en sauter
+une montrerait un pavillon qui n'est pas le sien. `pos` est en pouces dans le
+repère de la carte, z vers le **bas** ; `rot` en radians. La convention des
+rotations n'est écrite nulle part : elle est **mesurée** (`matriceDe`), sur un
+toit de murs inclinés sur deux axes. Ne pas la « corriger » sans refaire la
+mesure sur une disposition qui en a.
+
+**Les modèles viennent de l'archive `Gw2.dat` de la machine**, jamais d'un
+serveur : rien n'en est redistribué, et rien n'en est rangé à côté. Le crate
+`src-tauri/archive-gw2` la lit — décompression, fichiers PF, contenu de jeu,
+géométrie —, sans dépendance. Une décoration est une entrée de contenu de
+type 30 : son identifiant (celui de l'API) à +40, son modèle à +64. Le type
+n'a pas de nom stable d'une version du jeu à l'autre ; un décalage n'est retenu
+que s'il porte un vrai renvoi de fichier, et une mise à jour qui le
+déplacerait donne une décoration sans modèle, pas un modèle faux. Le premier
+fichier du contenu se range dans les réglages (`archiveGw2`) : retrouvé, il
+évite de parcourir l'archive. Un modèle voyage en **binaire**
+(`modele_decoration`), pas en JSON.
+
+**L'archive ne reste pas ouverte** entre deux lectures : le jeu ouvre la sienne
+en exclusif, et un handle gardé l'empêcherait de démarrer — dans l'autre sens,
+jeu lancé, l'ouverture échoue et le dit (`-shareArchive`). Le lanceur la met à
+jour en place, donc l'index se juge sur la taille et la date du fichier, et se
+refait quand elles changent. Rien ne s'alloue sur la foi d'un compte lu dans
+l'archive : un tableau doit tenir dans son fichier (`tableau_de`), une lecture
+dans l'archive — sinon un octet abîmé réclame des gigaoctets, et un échec
+d'allocation emporte toute l'application, éléments compris.
+
+Une décoration sans modèle lisible reste un **repère** à sa place et à sa
+taille de repère : on voit qu'elle est là, sans lui inventer de forme.
+Seule la géométrie se lit pour l'instant : pas de texture, et les plans de
+feuillage d'un arbre ressortent en facettes pleines.
+
+`examples/decouverte.rs` est l'outil qui a trouvé ces décalages — à reprendre
+après une mise à jour qui les casserait — et `examples/modeles.rs` écrit un
+modèle en OBJ pour le regarder ailleurs.
+
 ## Frontières
 
-- `src-tauri/**` ne connaît ni le hub ni l'API du jeu : il lit le lien, tient
-  les fenêtres, et c'est tout. Les requêtes réseau partent du front, par le
+- `src-tauri/**` ne connaît ni le hub ni l'API du jeu : il lit le lien et
+  l'archive, tient les fenêtres, et c'est tout. Les requêtes réseau partent du front, par le
   greffon `http`, sous la capacité qui les borne.
 - Le vocabulaire du hub (`src/lib/domaine.ts`) recopie ses valeurs et ses
   libellés ; une valeur inconnue s'affiche telle quelle plutôt que de faire
@@ -281,13 +329,13 @@ pour qu'une déconnexion faite dans une fenêtre se voie dans les autres.
 
 ```bash
 npm run typecheck && npm run lint && npm run build
-cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings
 ```
 
 Le crate ne se compile entièrement que sous Windows : `ring`, tiré par le
 greffon `http`, demande la chaîne MSVC. Ailleurs, `cargo test` sur le module
-`mumble` passe, et le reste se vérifie par le workflow `verifier.yml`.
+`mumble` et sur `archive-gw2` passe, et le reste se vérifie par le workflow `verifier.yml`.
 
 ## Publier
 
