@@ -22,8 +22,9 @@ const TAILLE_ENTETE: usize = 40;
 const TAILLE_ENTREE_MFT: usize = 24;
 /// L'entrée de la table qui porte l'index des numéros de fichier.
 const ENTREE_INDEX: usize = 2;
-/// Ce qu'on lit d'un fichier compressé pour n'en décompresser que l'en-tête.
-const PREFIXE_POUR_EN_TETE: usize = 4096;
+/// Ce qu'on lit d'un fichier compressé pour n'en décompresser que l'en-tête,
+/// en élargissant tant que ça ne suffit pas.
+const PREFIXES_POUR_EN_TETE: [usize; 3] = [1024, 8192, 65_536];
 
 #[derive(Debug)]
 pub enum ErreurArchive {
@@ -222,12 +223,16 @@ impl Archive {
             return self.lire_brut(entree, n);
         }
 
-        // Pour quelques octets, le début du flux suffit presque toujours : les
-        // arbres du premier bloc tiennent en quelques centaines d'octets. S'il
-        // ne suffit pas, on relit le fichier entier.
+        // Pour quelques octets, le début du flux suffit presque toujours : il
+        // faut seulement que les arbres du premier bloc y tiennent. On
+        // élargit la lecture jusqu'à ce qu'ils y tiennent, plutôt que de lire
+        // d'emblée un fichier qui peut peser des centaines de mégaoctets.
         if let Some(limite) = limite {
-            let essai = taille.min(PREFIXE_POUR_EN_TETE).max(limite.min(taille)) & !3;
-            if essai < taille {
+            for prefixe in PREFIXES_POUR_EN_TETE {
+                let essai = prefixe.max(limite) & !3;
+                if essai >= taille {
+                    break;
+                }
                 let brut = self.lire_brut(entree, essai)?;
                 if let Ok(octets) = decompresser(&brut, Some(limite)) {
                     return Ok(octets);

@@ -8,6 +8,8 @@
 pub mod archive;
 pub mod contenu;
 pub mod decompression;
+pub mod decorations;
+pub mod modele;
 pub mod pf;
 
 pub use archive::{Archive, ErreurArchive, Fichier};

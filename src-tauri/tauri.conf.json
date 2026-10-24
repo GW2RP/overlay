@@ -116,6 +116,19 @@
         "shadow": false,
         "visible": false,
         "focus": false
+      },
+      {
+        "label": "pavillon",
+        "title": "GW2RP — Éditeur de pavillon",
+        "url": "index.html#/pavillon",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 520,
+        "resizable": true,
+        "decorations": true,
+        "visible": false,
+        "backgroundColor": "#17120e"
       }
     ],
     "security": {
@@ -124,7 +137,7 @@
         "script-src": "'self'",
         "style-src": "'self' 'unsafe-inline'",
         "font-src": "'self'",
-        "img-src": "'self' data: https://*.public.blob.vercel-storage.com",
+        "img-src": "'self' data: https://*.public.blob.vercel-storage.com https://render.guildwars2.com",
         "connect-src": "'self' ipc: http://ipc.localhost"
       }
     }

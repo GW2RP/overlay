@@ -11,6 +11,7 @@ import {
   cacherOverlay,
   ELEMENTS,
   montrerOverlay,
+  ouvrirPavillon,
   RACCOURCI_EDITION,
   useEdition,
   useVisibilites,
@@ -331,6 +332,22 @@ function TableauDeBord({
       </section>
 
       <Affichage />
+
+      <section className="framed flex items-center justify-between gap-4 p-5">
+        <h2 className="panel-title text-ink">PAVILLON</h2>
+        <Button
+          type="button"
+          variant="quiet"
+          size="sm"
+          onClick={() =>
+            void ouvrirPavillon().catch((cause) =>
+              setErreur(cause instanceof Error ? cause.message : "L'éditeur ne s'ouvre pas."),
+            )
+          }
+        >
+          OUVRIR L'ÉDITEUR
+        </Button>
+      </section>
 
       <section className="framed flex flex-col gap-3 p-5">
         <h2 className="panel-title text-ink">ÉDITION</h2>
