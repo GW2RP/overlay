@@ -17,7 +17,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # de travail : un seul verrou, un seul dossier de compilation, et `fmt`,
 # `clippy` et `test` le couvrent avec `--workspace`.
 [workspace]
-members = [".", "archive-gw2"]
+members = [".", "archive-gw2", "serveur-mcp"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -45,6 +45,11 @@ tauri-plugin-dialog = "2"
 # La lecture de l'archive du jeu, pour les modèles du pavillon : un crate à
 # part, sans dépendance, qui se compile et se teste hors de Windows.
 archive-gw2 = { path = "archive-gw2" }
+# Le serveur MCP local de l'éditeur de pavillon : le protocole et ses
+# garde-fous, dans un crate à part qui se teste hors de Windows.
+serveur-mcp = { path = "serveur-mcp" }
+# Le jeton du serveur MCP : tiré du générateur du système.
+getrandom = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

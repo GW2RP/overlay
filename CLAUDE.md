@@ -353,10 +353,46 @@ feuillage d'un arbre ressortent en facettes pleines.
 après une mise à jour qui les casserait — et `examples/modeles.rs` écrit un
 modèle en OBJ pour le regarder ailleurs.
 
+## Le serveur MCP de l'éditeur
+
+**Claude pilote l'éditeur sans prendre la souris.** L'application sert un
+serveur MCP sur la boucle locale (`http://127.0.0.1:47823/mcp`) : ouvrir une
+disposition — un fichier du dossier ou un texte XML —, lister ses décorations,
+en relever une image PNG, tourner la caméra, choisir, modifier, annuler, lire
+le XML, enregistrer. Le protocole et ses garde-fous vivent dans le crate
+`src-tauri/serveur-mcp`, sans dépendance au reste, testé hors de Windows ;
+`src-tauri/src/mcp.rs` déclare les outils et **relaie** chaque appel à la
+fenêtre `pavillon` (`mcp-appel` → `mcp_repondre`), où vivent la disposition et
+la scène. La fenêtre se crée et se montre à la demande, sans prendre le
+focus : cachée ou réduite, la vue web suspend ses images, et les modèles
+n'arriveraient jamais.
+
+**Éteint par défaut**, il s'allume depuis l'éditeur (« Claude (MCP)… »), qui
+donne la commande `claude mcp add` à copier. Ce choix et le jeton se rangent
+dans un fichier à Rust (`mcp.json`), hors du magasin que le front écrit. Une
+page web ouverte sur la machine atteint aussi un port local : le serveur
+n'écoute que `127.0.0.1`, refuse un `Host` qui ne nomme pas la boucle locale
+(un domaine rebranché sur elle) et une `Origin` étrangère, et chaque requête
+porte le jeton (`Authorization: Bearer`).
+
+Le repère des outils est **celui du fichier** — pouces, z vers le bas,
+radians —, et une décoration se désigne par sa `cle`, jamais par son rang. Les
+gestes de Claude passent par l'historique, comme ceux de la souris : un seul
+appel, un seul « annuler ». Enregistrer crée **toujours** un nouveau fichier ;
+remplacer l'original reste un choix fait à l'écran.
+
+Le relevé se dessine **hors écran**, dans une cible flottante : three.js
+n'encode en sRGB que ce qu'il dessine à l'écran, et une cible sur huit bits
+recevrait des couleurs linéaires écrasées dans les sombres. Il attend par
+défaut que l'archive ait donné les modèles de toutes les sortes (`prets` de
+`useModeles`, posé dans la même image que la dernière table) : relevé trop
+tôt, il montrerait des repères là où le jeu a des murs.
+
 ## Frontières
 
 - `src-tauri/**` ne connaît ni le hub ni l'API du jeu : il lit le lien,
-  l'archive et le dossier des dispositions, tient les fenêtres, et c'est tout. Les requêtes réseau partent du front, par le
+  l'archive et le dossier des dispositions, tient les fenêtres, écoute le
+  serveur MCP local, et c'est tout. Les requêtes réseau partent du front, par le
   greffon `http`, sous la capacité qui les borne.
 - Le vocabulaire du hub (`src/lib/domaine.ts`) recopie ses valeurs et ses
   libellés ; une valeur inconnue s'affiche telle quelle plutôt que de faire
@@ -377,7 +413,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -
 
 Le crate ne se compile entièrement que sous Windows : `ring`, tiré par le
 greffon `http`, demande la chaîne MSVC. Ailleurs, `cargo test` sur le module
-`mumble` et sur `archive-gw2` passe, et le reste se vérifie par le workflow `verifier.yml`.
+`mumble`, sur `archive-gw2` et sur `serveur-mcp` passe, et le reste se vérifie par le workflow `verifier.yml`.
 
 ## Publier
 

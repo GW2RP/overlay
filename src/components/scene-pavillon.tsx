@@ -128,6 +128,55 @@ function jeton(nom: string): THREE.Color {
 
 export type Outil = "deplacer" | "tourner" | "echelle";
 
+type Triplet = [number, number, number];
+
+/** La caméra, dans le repère du jeu : elle tourne autour de `cible`.
+ *  `azimut` est le côté d'où elle regarde, en degrés depuis le nord vers
+ *  l'est ; `elevation` sa hauteur au-dessus de l'horizon. */
+export type Camera = {
+  cible: Triplet;
+  position: Triplet;
+  azimut: number;
+  elevation: number;
+  distance: number;
+  /** Le champ vertical, en degrés. */
+  champ: number;
+};
+
+/** Ce qu'on demande à la caméra. `cadrer` pose la cible et la distance ; ce
+ *  qui est donné ensuite l'emporte, et ce qui manque ne change pas. */
+export type ReglageCamera = {
+  cadrer?: "tout" | number[];
+  cible?: Triplet;
+  azimut?: number;
+  elevation?: number;
+  distance?: number;
+};
+
+/** Une boîte englobante dans le repère du jeu. */
+export type Boite = { min: Triplet; max: Triplet };
+
+/** Ce que la scène offre à qui la pilote sans souris : le serveur MCP. */
+export type ApiScene = {
+  /** Le cadrage de la scène qui répond : une disposition rouverte en
+   *  construit une autre. */
+  cadrage: number;
+  camera: () => Camera;
+  /** `aspect` : celui de l'image à venir, quand le cadrage la prépare. Sans
+   *  lui, la distance est celle qui embrasse tout à l'écran. */
+  regler: (reglage: ReglageCamera, aspect?: number) => Camera;
+  /** Une image PNG de la vue, en base 64, sans les poignées. */
+  capturer: (largeur: number, hauteur: number) => Promise<string>;
+  boites: (cles: Iterable<number>) => Map<number, Boite>;
+};
+
+/** L'élévation se borne en deçà des pôles : à la verticale exacte, la
+ *  caméra ne sait plus où est le nord. */
+const ELEVATION_MIN = -89;
+const ELEVATION_MAX = 89.5;
+
+const DEGRE = Math.PI / 180;
+
 const MODE_DES_POIGNEES: Record<Outil, "translate" | "rotate" | "scale"> = {
   deplacer: "translate",
   tourner: "rotate",
@@ -189,6 +238,8 @@ type Props = {
   /** Rempli par la scène : où poser une décoration ajoutée, en pouces du
    *  jeu — le point que la caméra regarde, ramené au sol. */
   pointDePoseRef?: RefObject<(() => [number, number, number]) | null>;
+  /** Rempli par la scène : la caméra, le relevé d'image et les boîtes. */
+  apiRef?: RefObject<ApiScene | null>;
 };
 
 export function ScenePavillon({
@@ -202,6 +253,7 @@ export function ScenePavillon({
   onCliquer,
   onTransformer,
   pointDePoseRef,
+  apiRef,
 }: Props) {
   const conteneur = useRef<HTMLDivElement>(null);
   const monde = useRef<Monde | null>(null);
@@ -429,9 +481,132 @@ export function ScenePavillon({
         versJeu(new THREE.Vector3(orbite.target.x, boite.min.y, orbite.target.z));
     }
 
+    /* --- Sans souris ------------------------------------------------------ */
+
+    const lireCamera = (): Camera => {
+      const ecartCamera = camera.position.clone().sub(orbite.target);
+      const distance = ecartCamera.length();
+      const [ex, ey, ez] = versJeu(ecartCamera);
+      return {
+        cible: versJeu(orbite.target),
+        position: versJeu(camera.position),
+        azimut: (((Math.atan2(ex, ey) / DEGRE) % 360) + 360) % 360,
+        elevation: distance > 0 ? Math.asin(-ez / distance) / DEGRE : 0,
+        distance,
+        champ: camera.fov,
+      };
+    };
+
+    /** Les boîtes des décorations dans la scène : celle de leur modèle, ou
+     *  de leur repère, placée comme elles. */
+    const boitesScene = (cles: Iterable<number>): Map<number, THREE.Box3> => {
+      const resultat = new Map<number, THREE.Box3>();
+      const m = monde.current;
+      if (!m) return resultat;
+      const matrice = new THREE.Matrix4();
+      for (const cle of cles) {
+        const place = m.places.get(cle);
+        if (!place) continue;
+        const geometrie = place.instances.geometry;
+        if (!geometrie.boundingBox) geometrie.computeBoundingBox();
+        place.instances.getMatrixAt(place.rang, matrice);
+        resultat.set(cle, geometrie.boundingBox!.clone().applyMatrix4(matrice));
+      }
+      return resultat;
+    };
+
+    const regler = (reglage: ReglageCamera, aspect = camera.aspect): Camera => {
+      const avant = lireCamera();
+      let cible = new THREE.Vector3().copy(orbite.target);
+      let distance = avant.distance;
+      if (reglage.cadrer) {
+        const m = monde.current;
+        const cles = reglage.cadrer === "tout" ? (m ? [...m.places.keys()] : []) : reglage.cadrer;
+        const englobe = new THREE.Box3();
+        boitesScene(cles).forEach((b) => englobe.union(b));
+        if (englobe.isEmpty()) throw new Error("Aucune de ces décorations n'est dans la scène.");
+        cible = englobe.getCenter(new THREE.Vector3());
+        const rayon = Math.max(englobe.getSize(new THREE.Vector3()).length() / 2, COTE_REPERE);
+        // Le champ le plus étroit des deux, pour qu'une vue haute comme une
+        // vue large embrasse tout.
+        const vertical = camera.fov * DEGRE;
+        const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * aspect);
+        distance = (rayon / Math.sin(Math.min(vertical, horizontal) / 2)) * 1.05;
+      }
+      if (reglage.cible) {
+        const [x, y, z] = reglage.cible;
+        cible = new THREE.Vector3(x, -z, -y);
+      }
+      if (reglage.distance !== undefined) distance = reglage.distance;
+      if (!(distance > 0) || !Number.isFinite(distance)) throw new Error("La distance doit être positive.");
+      const azimut = (reglage.azimut ?? avant.azimut) * DEGRE;
+      const elevation =
+        Math.min(ELEVATION_MAX, Math.max(ELEVATION_MIN, reglage.elevation ?? avant.elevation)) * DEGRE;
+      // L'écart dans le repère du jeu, passé dans celui de three.js.
+      const ex = distance * Math.cos(elevation) * Math.sin(azimut);
+      const ey = distance * Math.cos(elevation) * Math.cos(azimut);
+      const ez = -distance * Math.sin(elevation);
+      orbite.target.copy(cible);
+      camera.position.copy(cible).add(new THREE.Vector3(ex, -ez, -ey));
+      // Une caméra reculée au-delà du cadre d'origine ne doit pas perdre le
+      // pavillon au fond de la vue.
+      camera.far = Math.max(camera.far, distance * 10);
+      camera.updateProjectionMatrix();
+      orbite.update();
+      rendre();
+      return lireCamera();
+    };
+
+    const capturer = async (largeur: number, hauteur: number): Promise<string> => {
+      // Flottante : three.js n'encode en sRGB que ce qu'il dessine à l'écran,
+      // une cible hors écran reçoit des couleurs linéaires, qu'on encode
+      // ensuite sans les écraser sur huit bits. Demi-précision : elle suffit
+      // à huit bits de sortie, et tous les pilotes la multi-échantillonnent,
+      // ce que la pleine ne garantit pas.
+      const cible = new THREE.WebGLRenderTarget(largeur, hauteur, { type: THREE.HalfFloatType, samples: 4 });
+      const aspect = camera.aspect;
+      const pixels = new Uint16Array(largeur * hauteur * 4);
+      aide.visible = false;
+      try {
+        camera.aspect = largeur / hauteur;
+        camera.updateProjectionMatrix();
+        rendu.setRenderTarget(cible);
+        rendu.render(scene, camera);
+        rendu.readRenderTargetPixels(cible, 0, 0, largeur, hauteur, pixels);
+      } finally {
+        rendu.setRenderTarget(null);
+        camera.aspect = aspect;
+        camera.updateProjectionMatrix();
+        aide.visible = true;
+        cible.dispose();
+        rendre();
+      }
+      return encoderPng(pixels, largeur, hauteur);
+    };
+
+    if (apiRef) {
+      apiRef.current = {
+        cadrage,
+        camera: lireCamera,
+        regler,
+        capturer,
+        boites: (cles) => {
+          const resultat = new Map<number, Boite>();
+          boitesScene(cles).forEach((b, cle) =>
+            resultat.set(cle, {
+              min: [b.min.x, -b.max.z, -b.max.y],
+              max: [b.max.x, -b.min.z, -b.min.y],
+            }),
+          );
+          return resultat;
+        },
+      };
+    }
+
     return () => {
       monde.current = null;
       if (pointDePoseRef) pointDePoseRef.current = null;
+      if (apiRef) apiRef.current = null;
       enGlisse.current = false;
       differee.current = false;
       viderSortes(sortes);
@@ -453,7 +628,7 @@ export function ScenePavillon({
       rendu.forceContextLoss();
       rendu.domElement.remove();
     };
-    // `pointDePoseRef` est une référence stable du parent.
+    // `pointDePoseRef` et `apiRef` sont des références stables du parent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cadrage]);
 
@@ -581,6 +756,40 @@ export function ScenePavillon({
   }, [outil, pasAngle, cadrage]);
 
   return <div ref={conteneur} className="size-full min-h-0" />;
+}
+
+/** Du linéaire au sRGB, sur huit bits. */
+function versSrgb(c: number): number {
+  const v = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  return Math.round(Math.min(1, Math.max(0, v)) * 255);
+}
+
+/** Des pixels linéaires en demi-flottants, lus de bas en haut, en PNG base 64 de haut en bas. */
+async function encoderPng(pixels: Uint16Array, largeur: number, hauteur: number): Promise<string> {
+  const image = new ImageData(largeur, hauteur);
+  for (let y = 0; y < hauteur; y++) {
+    const source = (hauteur - 1 - y) * largeur * 4;
+    const dest = y * largeur * 4;
+    for (let x = 0; x < largeur * 4; x += 4) {
+      image.data[dest + x] = versSrgb(THREE.DataUtils.fromHalfFloat(pixels[source + x]));
+      image.data[dest + x + 1] = versSrgb(THREE.DataUtils.fromHalfFloat(pixels[source + x + 1]));
+      image.data[dest + x + 2] = versSrgb(THREE.DataUtils.fromHalfFloat(pixels[source + x + 2]));
+      image.data[dest + x + 3] = 255;
+    }
+  }
+  const toile = document.createElement("canvas");
+  toile.width = largeur;
+  toile.height = hauteur;
+  toile.getContext("2d")!.putImageData(image, 0, 0);
+  const png = await new Promise<Blob>((resolve, reject) =>
+    toile.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("L'image ne s'encode pas."))), "image/png"),
+  );
+  const octets = new Uint8Array(await png.arrayBuffer());
+  let binaire = "";
+  for (let i = 0; i < octets.length; i += 0x8000) {
+    binaire += String.fromCharCode(...octets.subarray(i, i + 0x8000));
+  }
+  return btoa(binaire);
 }
 
 /** Les couleurs posées par `setColorAt` partent au prochain rendu. */

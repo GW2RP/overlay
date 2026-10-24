@@ -1,0 +1,12 @@
+[package]
+name = "serveur-mcp"
+version = "0.1.0"
+description = "Un serveur MCP local, en HTTP sur la boucle locale : le protocole et ses garde-fous, sans rien savoir des outils qu'il sert."
+authors = ["La communauté GW2RP"]
+edition = "2021"
+publish = false
+
+# `serde_json` seulement : le crate se compile et se teste hors de Windows,
+# comme `archive-gw2`, sans la chaîne MSVC qu'exige le binaire Tauri.
+[dependencies]
+serde_json = "1"

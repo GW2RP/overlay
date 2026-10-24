@@ -54,7 +54,7 @@ pub struct Fichier {
     pub modifie: Option<u64>,
 }
 
-fn depuis_le_pavillon(fenetre: &WebviewWindow) -> Result<(), String> {
+pub(crate) fn depuis_le_pavillon(fenetre: &WebviewWindow) -> Result<(), String> {
     if fenetre.label() == FENETRE_PAVILLON {
         Ok(())
     } else {

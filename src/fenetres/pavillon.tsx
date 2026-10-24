@@ -11,7 +11,7 @@ import {
 import { CataloguePavillon } from "@/components/catalogue-pavillon";
 import { InspecteurPavillon } from "@/components/inspecteur-pavillon";
 import { Modale } from "@/components/modale";
-import { ScenePavillon, type Outil } from "@/components/scene-pavillon";
+import { ScenePavillon, type ApiScene, type Outil, type ReglageCamera } from "@/components/scene-pavillon";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/field";
 import {
@@ -27,12 +27,25 @@ import {
 } from "@/lib/dispositions";
 import { useHistorique } from "@/lib/historique";
 import {
+  attendre,
+  commandeClaudeCode,
+  ErreurOutil,
+  etatMcp,
+  reglerMcp,
+  renouvelerJetonMcp,
+  texte as contenuTexte,
+  useAppelsMcp,
+  type EtatMcp,
+} from "@/lib/mcp";
+import {
+  arrondirEchelle,
   CHEMIN_ARCHIVE_PAR_DEFAUT,
   ErreurDisposition,
   ecrireDisposition,
   lireDisposition,
   lireFiches,
   lireModele,
+  normaliserAngle,
   nouvelleCle,
   ouvrirArchive,
   sortesDe,
@@ -72,7 +85,11 @@ type Ouverte = {
 
 type Onglet = "dispositions" | "decorations";
 
-type EtatModale = { type: "enregistrer" } | { type: "abandonner"; ensuite: () => void } | null;
+type EtatModale =
+  | { type: "enregistrer" }
+  | { type: "abandonner"; ensuite: () => void }
+  | { type: "mcp" }
+  | null;
 
 /** Le pas des poignées et des flèches, en pouces. */
 const PAS_POSITION = [1, 10, 50, 100] as const;
@@ -122,7 +139,7 @@ export function FenetrePavillon() {
   const ids = useMemo(() => sortes.map((sorte) => sorte.id).sort((a, b) => a - b), [sortes]);
   const fiches = useFiches(ids);
   const archive = useArchive();
-  const modeles = useModeles(ids, archive.ouverte);
+  const { modeles, prets: modelesPrets } = useModeles(ids, archive.ouverte);
 
   // Une annulation peut retirer une décoration choisie : la sélection ne
   // garde que celles qui existent encore.
@@ -135,15 +152,18 @@ export function FenetrePavillon() {
 
   /* --- Ouvrir ------------------------------------------------------------- */
 
+  function ouvrirLue(lue: Disposition, fichier: string | null, depuis: string | null, nom: string) {
+    setOuverte({ disposition: lue, fichier, dossier: depuis, nom });
+    historique.repartir(lue.decorations);
+    setSelection(new Set());
+    setCadrage((c) => c + 1);
+    setErreur(null);
+    setAnnonce(null);
+  }
+
   function ouvrir(texte: string, fichier: string | null, depuis: string | null, nom: string) {
     try {
-      const lue = lireDisposition(texte);
-      setOuverte({ disposition: lue, fichier, dossier: depuis, nom });
-      historique.repartir(lue.decorations);
-      setSelection(new Set());
-      setCadrage((c) => c + 1);
-      setErreur(null);
-      setAnnonce(null);
+      ouvrirLue(lireDisposition(texte), fichier, depuis, nom);
     } catch (cause) {
       setErreur(cause instanceof ErreurDisposition ? cause.message : "Ce fichier ne se lit pas.");
     }
@@ -332,6 +352,332 @@ export function FenetrePavillon() {
       .catch((cause) => setErreur(phrase(cause, "La disposition ne s'exporte pas.")));
   }
 
+  /* --- Claude, par le serveur MCP --------------------------------------- */
+
+  const apiScene = useRef<ApiScene | null>(null);
+  const vivant = useRef({
+    ouverte,
+    decorations,
+    selection,
+    historique,
+    modeles,
+    modelesPrets,
+    fiches,
+    sortes,
+    archive: archive.ouverte,
+    dossier: dossier.dossier,
+    cadrage,
+  });
+  // Après chaque rendu, donc après les effets de la scène : qui relit cet
+  // état la trouve déjà reconstruite.
+  useEffect(() => {
+    vivant.current = {
+      ouverte,
+      decorations,
+      selection,
+      historique,
+      modeles,
+      modelesPrets,
+      fiches,
+      sortes,
+      archive: archive.ouverte,
+      dossier: dossier.dossier,
+      cadrage,
+    };
+  });
+
+  useAppelsMcp(async (nomOutil, args) => {
+    const v = vivant.current;
+    const exigerOuverte = () => {
+      const ouverteCourante = vivant.current.ouverte;
+      if (!ouverteCourante) throw new ErreurOutil("Aucune disposition n'est ouverte.");
+      return ouverteCourante;
+    };
+    const scene = async () => {
+      exigerOuverte();
+      await attendre(() => apiScene.current?.cadrage === vivant.current.cadrage, 15_000, "La scène");
+      return apiScene.current!;
+    };
+    const connues = () => new Set(vivant.current.decorations.map((d) => d.cle));
+    const reglageDe = (a: Record<string, unknown>): ReglageCamera => {
+      const reglage: ReglageCamera = {};
+      if (a.cadrer === "tout") reglage.cadrer = "tout";
+      else if (a.cadrer === "selection") {
+        if (vivant.current.selection.size === 0) throw new ErreurOutil("La sélection est vide.");
+        reglage.cadrer = [...vivant.current.selection];
+      } else if (a.cadrer !== undefined) reglage.cadrer = listeDeCles(a.cadrer, "cadrer");
+      if (a.cible !== undefined) reglage.cible = tripletDe(a.cible, "cible");
+      if (a.azimut !== undefined) reglage.azimut = nombreDe(a.azimut, "azimut");
+      if (a.elevation !== undefined) reglage.elevation = nombreDe(a.elevation, "elevation");
+      if (a.distance !== undefined) reglage.distance = nombreDe(a.distance, "distance");
+      return reglage;
+    };
+
+    switch (nomOutil) {
+      case "etat_editeur": {
+        const o = v.ouverte;
+        return [
+          contenuTexte({
+            disposition: o
+              ? {
+                  nom: o.nom,
+                  fichier: o.fichier,
+                  carte: titreDe(o.disposition),
+                  carteId: o.disposition.carteId,
+                  decorations: v.decorations.length,
+                  sortes: v.sortes.length,
+                  modifiee: v.historique.modifie,
+                }
+              : null,
+            archive: v.archive ? { chemin: v.archive.chemin, modeles: v.archive.decorations } : null,
+            modeles: { lus: v.modeles.size, prets: v.modelesPrets },
+            selection: [...v.selection],
+            camera: o && apiScene.current ? arrondirCamera(apiScene.current.camera()) : null,
+            dossier: v.dossier,
+          }),
+        ];
+      }
+
+      case "lister_dispositions": {
+        if (!v.dossier) throw new ErreurOutil("Aucun dossier de dispositions n'est choisi.");
+        const fichiers = await listerDispositions();
+        fichiers.sort((a, b) => a.nom.localeCompare(b.nom, "fr-FR"));
+        return [contenuTexte({ dossier: v.dossier, fichiers })];
+      }
+
+      case "ouvrir_disposition": {
+        const fichier = typeof args.fichier === "string" && args.fichier ? args.fichier : null;
+        const xml = typeof args.xml === "string" && args.xml ? args.xml : null;
+        if ((fichier === null) === (xml === null)) throw new ErreurOutil("Donnez soit `fichier`, soit `xml`.");
+        if (v.historique.modifie && args.abandonner_modifications !== true) {
+          throw new ErreurOutil(
+            "La disposition ouverte a des modifications non enregistrées : passez `abandonner_modifications` pour la remplacer.",
+          );
+        }
+        let source = xml ?? "";
+        let depuis: string | null = null;
+        if (fichier) {
+          if (!v.dossier) throw new ErreurOutil("Aucun dossier de dispositions n'est choisi.");
+          depuis = v.dossier;
+          source = await lireFichierDisposition(fichier);
+        }
+        let lue: Disposition;
+        try {
+          lue = lireDisposition(source);
+        } catch (cause) {
+          throw new ErreurOutil(cause instanceof ErreurDisposition ? cause.message : "Ce fichier ne se lit pas.");
+        }
+        const nom = fichier
+          ? sansExtension(fichier)
+          : typeof args.nom === "string" && args.nom.trim()
+            ? args.nom.trim()
+            : "Sans titre";
+        const attendu = vivant.current.cadrage + 1;
+        ++ouverture.current;
+        setModale(null);
+        ouvrirLue(lue, fichier, depuis, nom);
+        await attendre(() => apiScene.current?.cadrage === attendu, 15_000, "La scène");
+        return [
+          contenuTexte({
+            nom,
+            carte: titreDe(lue),
+            decorations: lue.decorations.length,
+            sortes: sortesDe(lue.decorations).length,
+          }),
+        ];
+      }
+
+      case "lister_decorations": {
+        exigerOuverte();
+        const cles = args.cles === undefined ? null : new Set(listeDeCles(args.cles, "cles"));
+        const ids = args.ids === undefined ? null : new Set(listeDeCles(args.ids, "ids"));
+        const recherche =
+          typeof args.recherche === "string" ? args.recherche.trim().toLocaleLowerCase("fr-FR") : "";
+        const nomDe = (d: Decoration) => v.fiches.get(d.id)?.name ?? d.nom;
+        const trouvees = v.decorations.filter(
+          (d) =>
+            (!cles || cles.has(d.cle)) &&
+            (!ids || ids.has(d.id)) &&
+            (!recherche || nomDe(d).toLocaleLowerCase("fr-FR").includes(recherche)),
+        );
+        const boites = args.avec_boites === true ? (await scene()).boites(trouvees.map((d) => d.cle)) : null;
+        return [
+          contenuTexte(
+            trouvees.map((d) => ({
+              cle: d.cle,
+              id: d.id,
+              nom: nomDe(d),
+              position: d.position.map((n) => arrondi(n, 3)),
+              rotation: d.rotation.map((n) => arrondi(n, 6)),
+              echelle: arrondi(d.echelle, 6),
+              ...(boites
+                ? {
+                    modele: (v.modeles.get(d.id)?.length ?? 0) > 0,
+                    boite: boites.get(d.cle) && {
+                      min: boites.get(d.cle)!.min.map((n) => arrondi(n, 1)),
+                      max: boites.get(d.cle)!.max.map((n) => arrondi(n, 1)),
+                    },
+                  }
+                : {}),
+            })),
+          ),
+        ];
+      }
+
+      case "capturer_vue": {
+        exigerOuverte();
+        const largeur = entierBorne(args.largeur, 1280, "largeur");
+        const hauteur = entierBorne(args.hauteur, 800, "hauteur");
+        const reglage = reglageDe(args);
+        if (args.attendre_modeles !== false) {
+          await attendre(() => vivant.current.modelesPrets, 170_000, "Les modèles");
+        }
+        const api = await scene();
+        // Une image encore : la scène reconstruite avec les derniers modèles
+        // se dessine avant le relevé.
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        if (Object.keys(reglage).length > 0) api.regler(reglage, largeur / hauteur);
+        const image = await api.capturer(largeur, hauteur);
+        const courant = vivant.current;
+        const reperes = courant.decorations.filter((d) => !(courant.modeles.get(d.id)?.length)).length;
+        return [
+          { type: "image", data: image, mimeType: "image/png" },
+          contenuTexte({ camera: arrondirCamera(api.camera()), reperes, modelesPrets: courant.modelesPrets }),
+        ];
+      }
+
+      case "regler_camera": {
+        const api = await scene();
+        return [contenuTexte(arrondirCamera(api.regler(reglageDe(args))))];
+      }
+
+      case "choisir": {
+        exigerOuverte();
+        const cles = listeDeCles(args.cles, "cles");
+        const presentes = connues();
+        const inconnues = cles.filter((cle) => !presentes.has(cle));
+        if (inconnues.length > 0) throw new ErreurOutil(`Clés inconnues : ${inconnues.join(", ")}.`);
+        setSelection(new Set(cles));
+        return [contenuTexte({ selection: cles })];
+      }
+
+      case "modifier_decorations": {
+        exigerOuverte();
+        const presentes = connues();
+        const verifier = (cle: number) => {
+          if (!presentes.has(cle)) throw new ErreurOutil(`Clé inconnue : ${cle}.`);
+          return cle;
+        };
+        const avant = new Map(v.decorations.map((d) => [d.cle, d]));
+        // Seules les décorations que cet appel touche : les autres se
+        // reprennent telles qu'elles sont à la fin de l'appel.
+        const changees = new Map<number, Decoration>();
+        const courante = (cle: number) => changees.get(cle) ?? avant.get(cle)!;
+        let modifiees = 0;
+
+        for (const brut of tableauDe(args.modifier, "modifier")) {
+          const m = objetDe(brut, "modifier");
+          const d = courante(verifier(entierDe(m.cle, "cle")));
+          changees.set(d.cle, {
+            ...d,
+            position: m.position === undefined ? d.position : tripletDe(m.position, "position"),
+            rotation:
+              m.rotation === undefined
+                ? d.rotation
+                : (tripletDe(m.rotation, "rotation").map(normaliserAngle) as [number, number, number]),
+            echelle: m.echelle === undefined ? d.echelle : arrondirEchelle(positifDe(m.echelle, "echelle")),
+          });
+          modifiees += 1;
+        }
+
+        if (args.deplacer !== undefined) {
+          const d = objetDe(args.deplacer, "deplacer");
+          const [dx, dy, dz] = tripletDe(d.ecart, "ecart");
+          for (const cle of listeDeCles(d.cles, "cles")) {
+            const p = courante(verifier(cle));
+            changees.set(cle, {
+              ...p,
+              position: [p.position[0] + dx, p.position[1] + dy, p.position[2] + dz],
+            });
+            modifiees += 1;
+          }
+        }
+
+        const retirees = new Set(args.retirer === undefined ? [] : listeDeCles(args.retirer, "retirer").map(verifier));
+
+        const aAjouter = tableauDe(args.ajouter, "ajouter").map((brut) => {
+          const a = objetDe(brut, "ajouter");
+          return {
+            id: entierDe(a.id, "id"),
+            position: tripletDe(a.position, "position"),
+            rotation:
+              a.rotation === undefined
+                ? ([0, 0, 0] as [number, number, number])
+                : (tripletDe(a.rotation, "rotation").map(normaliserAngle) as [number, number, number]),
+            echelle: a.echelle === undefined ? 1 : arrondirEchelle(positifDe(a.echelle, "echelle")),
+          };
+        });
+        // Le nom que le jeu écrirait : celui de l'API. Sans fiche, le champ
+        // reste vide plutôt qu'un nom inventé.
+        const fichesAjout = aAjouter.length > 0 ? await lireFiches(aAjouter.map((a) => a.id)) : new Map();
+        const ajoutees: Decoration[] = aAjouter.map((a) => ({
+          cle: nouvelleCle(),
+          nom: fichesAjout.get(a.id)?.name ?? "",
+          ...a,
+        }));
+
+        if (modifiees === 0 && retirees.size === 0 && ajoutees.length === 0) {
+          throw new ErreurOutil("Rien à modifier.");
+        }
+        // Relue maintenant : la lecture des fiches a pu laisser passer un
+        // geste fait à la souris.
+        const courantes = vivant.current.decorations;
+        const suivantes = [
+          ...courantes.filter((d) => !retirees.has(d.cle)).map((d) => changees.get(d.cle) ?? d),
+          ...ajoutees,
+        ];
+        historique.appliquer(suivantes);
+        return [
+          contenuTexte({
+            modifiees,
+            retirees: retirees.size,
+            ajoutees: ajoutees.map((d) => ({ cle: d.cle, id: d.id, nom: d.nom })),
+            decorations: suivantes.length,
+          }),
+        ];
+      }
+
+      case "annuler":
+      case "retablir": {
+        exigerOuverte();
+        const possible = nomOutil === "annuler" ? v.historique.peutAnnuler : v.historique.peutRetablir;
+        if (!possible) throw new ErreurOutil(nomOutil === "annuler" ? "Rien à annuler." : "Rien à rétablir.");
+        if (nomOutil === "annuler") historique.annuler();
+        else historique.retablir();
+        await attendre(() => vivant.current.decorations !== v.decorations, 5_000, "Le geste");
+        return [contenuTexte({ decorations: vivant.current.decorations.length, modifiee: vivant.current.historique.modifie })];
+      }
+
+      case "lire_xml": {
+        const o = exigerOuverte();
+        return [contenuTexte(ecrireDisposition({ ...o.disposition, decorations: v.decorations }))];
+      }
+
+      case "enregistrer_disposition": {
+        exigerOuverte();
+        if (!v.dossier) throw new ErreurOutil("Aucun dossier de dispositions n'est choisi.");
+        const saisi = typeof args.nom === "string" ? args.nom : "";
+        if (!saisi.trim().replace(/\.xml$/i, "").trim()) throw new ErreurOutil("Le nom du fichier est vide.");
+        const nom = nomDeFichier(saisi);
+        await enregistrer(nom, false);
+        return [contenuTexte({ fichier: nom, dossier: v.dossier })];
+      }
+
+      default:
+        throw new ErreurOutil(`Outil inconnu : ${nomOutil}.`);
+    }
+  });
+
   /* --- L'écran ------------------------------------------------------------ */
 
   const meta = ouverte
@@ -365,6 +711,9 @@ export function FenetrePavillon() {
           onChange={(e) => void importer(e)}
         />
         <div className="flex flex-wrap gap-3">
+          <Button type="button" variant="quiet" onClick={() => setModale({ type: "mcp" })}>
+            CLAUDE (MCP)…
+          </Button>
           <Button type="button" variant="outline" onClick={() => champ.current?.click()}>
             IMPORTER UN FICHIER
           </Button>
@@ -490,6 +839,7 @@ export function FenetrePavillon() {
                   onCliquer={cliquer}
                   onTransformer={remplacer}
                   pointDePoseRef={pointDePose}
+                  apiRef={apiScene}
                 />
               </div>
             </section>
@@ -537,6 +887,7 @@ export function FenetrePavillon() {
           }
         />
       ) : null}
+      {modale?.type === "mcp" ? <ModaleMcp onFermer={() => setModale(null)} /> : null}
       {modale?.type === "enregistrer" && ouverte ? (
         <ModaleEnregistrer
           ouverte={ouverte}
@@ -565,6 +916,166 @@ function titreDe(disposition: Disposition): string {
   if (disposition.carteNom) return disposition.carteNom;
   if (disposition.carteId) return `Carte ${disposition.carteId}`;
   return "Carte inconnue";
+}
+
+/* --- Les arguments des outils ----------------------------------------------- */
+
+function nombreDe(valeur: unknown, nom: string): number {
+  if (typeof valeur !== "number" || !Number.isFinite(valeur)) throw new ErreurOutil(`\`${nom}\` doit être un nombre.`);
+  return valeur;
+}
+
+function positifDe(valeur: unknown, nom: string): number {
+  const n = nombreDe(valeur, nom);
+  if (n <= 0) throw new ErreurOutil(`\`${nom}\` doit être positif.`);
+  return n;
+}
+
+function entierDe(valeur: unknown, nom: string): number {
+  const n = nombreDe(valeur, nom);
+  if (!Number.isInteger(n)) throw new ErreurOutil(`\`${nom}\` doit être un entier.`);
+  return n;
+}
+
+function entierBorne(valeur: unknown, defaut: number, nom: string): number {
+  if (valeur === undefined) return defaut;
+  const n = entierDe(valeur, nom);
+  if (n < 256 || n > 2048) throw new ErreurOutil(`\`${nom}\` va de 256 à 2048 pixels.`);
+  return n;
+}
+
+function tripletDe(valeur: unknown, nom: string): [number, number, number] {
+  if (!Array.isArray(valeur) || valeur.length !== 3) throw new ErreurOutil(`\`${nom}\` doit être [x, y, z].`);
+  return [nombreDe(valeur[0], nom), nombreDe(valeur[1], nom), nombreDe(valeur[2], nom)];
+}
+
+function tableauDe(valeur: unknown, nom: string): unknown[] {
+  if (valeur === undefined) return [];
+  if (!Array.isArray(valeur)) throw new ErreurOutil(`\`${nom}\` doit être une liste.`);
+  return valeur;
+}
+
+function listeDeCles(valeur: unknown, nom: string): number[] {
+  return tableauDe(valeur, nom).map((n) => entierDe(n, nom));
+}
+
+function objetDe(valeur: unknown, nom: string): Record<string, unknown> {
+  if (typeof valeur !== "object" || valeur === null || Array.isArray(valeur)) {
+    throw new ErreurOutil(`\`${nom}\` doit être un objet.`);
+  }
+  return valeur as Record<string, unknown>;
+}
+
+function arrondi(n: number, decimales: number): number {
+  return Number(n.toFixed(decimales));
+}
+
+function arrondirCamera(camera: ReturnType<ApiScene["camera"]>) {
+  return {
+    cible: camera.cible.map((n) => arrondi(n, 1)),
+    position: camera.position.map((n) => arrondi(n, 1)),
+    azimut: arrondi(camera.azimut, 1),
+    elevation: arrondi(camera.elevation, 1),
+    distance: arrondi(camera.distance, 1),
+    champ: camera.champ,
+  };
+}
+
+/* --- Le serveur MCP ------------------------------------------------------------ */
+
+/** Allumer le serveur, et ce qu'il faut pour y brancher Claude. */
+function ModaleMcp({ onFermer }: { onFermer: () => void }) {
+  const [etat, setEtat] = useState<EtatMcp | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const [copiee, setCopiee] = useState(false);
+
+  useEffect(() => {
+    etatMcp()
+      .then(setEtat)
+      .catch((cause) => setErreur(phrase(cause, "Le serveur MCP ne se lit pas.")));
+  }, []);
+
+  function agir(action: () => Promise<EtatMcp>) {
+    setEnCours(true);
+    setErreur(null);
+    setCopiee(false);
+    action()
+      .then(setEtat)
+      .catch((cause) => setErreur(phrase(cause, "Le serveur MCP ne se règle pas.")))
+      .finally(() => setEnCours(false));
+  }
+
+  const commande = etat ? commandeClaudeCode(etat) : "";
+  const panne = erreur ?? (etat?.erreur ? phrase(etat.erreur, "") : null);
+
+  return (
+    <Modale
+      titre="SERVEUR MCP"
+      onFermer={onFermer}
+      actions={
+        <>
+          <Button type="button" variant="quiet" onClick={onFermer}>
+            FERMER
+          </Button>
+          <Button
+            type="button"
+            disabled={!etat || enCours}
+            onClick={() => agir(() => reglerMcp(!etat?.actif))}
+          >
+            {etat?.actif ? "ÉTEINDRE" : "ALLUMER"}
+          </Button>
+        </>
+      }
+    >
+      <p role="status" className="body-compact text-ink">
+        {etat ? (etat.actif ? "Allumé" : "Éteint") : "Lecture…"}
+      </p>
+      {etat ? (
+        <>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="mcp-adresse">Adresse</Label>
+            <Input id="mcp-adresse" readOnly value={etat.adresse} className="caption" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="mcp-commande">Commande Claude Code</Label>
+            <div className="flex gap-2">
+              <Input id="mcp-commande" readOnly value={commande} className="min-w-0 flex-1 caption" />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void navigator.clipboard
+                    .writeText(commande)
+                    .then(() => setCopiee(true))
+                    .catch(() => setErreur("La commande ne se copie pas."))
+                }
+              >
+                {copiee ? "COPIÉE" : "COPIER"}
+              </Button>
+            </div>
+          </div>
+          <div>
+            <Button
+              type="button"
+              variant="quiet"
+              size="sm"
+              disabled={enCours}
+              onClick={() => agir(renouvelerJetonMcp)}
+            >
+              RENOUVELER LE JETON
+            </Button>
+          </div>
+        </>
+      ) : null}
+      {panne ? (
+        <p role="alert" className="caption text-crimson-ink">
+          {panne}
+        </p>
+      ) : null}
+    </Modale>
+  );
 }
 
 function ChoixPas({
@@ -1072,10 +1583,17 @@ const modelesLus = new Map<string, Map<number, Maillage[]>>();
  *  table se pose au fil des lectures, pas une fois la dernière finie. Une
  *  sorte sans modèle reste absente de la table : la scène la montre en
  *  repère. */
-function useModeles(ids: number[], archive: EtatArchive | null): Map<number, Maillage[]> {
+function useModeles(
+  ids: number[],
+  archive: EtatArchive | null,
+): { modeles: Map<number, Maillage[]>; prets: boolean } {
   const [modeles, setModeles] = useState<Map<number, Maillage[]>>(new Map());
+  /** La lecture dont la table est posée en entier : celle de cette archive
+   *  et de ces sortes, ou une autre, finie avant. */
+  const [finie, setFinie] = useState<string | null>(null);
   const cle = ids.join(",");
   const ouverte = archive?.chemin ?? null;
+  const lecture = `${ouverte}|${cle}`;
 
   useEffect(() => {
     if (!cle || !ouverte) return;
@@ -1090,6 +1608,7 @@ function useModeles(ids: number[], archive: EtatArchive | null): Map<number, Mai
     const presents = () =>
       new Map(voulus.flatMap((id) => (memoire.get(id)?.length ? [[id, memoire.get(id)!]] : [])));
     const restants = voulus.filter((id) => !memoire.has(id));
+    let enCours = 0;
 
     // Une image par lot plutôt qu'une par modèle : la scène se reconstruit
     // à chaque nouvelle table.
@@ -1099,18 +1618,24 @@ function useModeles(ids: number[], archive: EtatArchive | null): Map<number, Mai
       enAttente = true;
       requestAnimationFrame(() => {
         enAttente = false;
-        if (!parti) setModeles(presents());
+        if (parti) return;
+        setModeles(presents());
+        // Dans la même image que la dernière table : qui attend les modèles
+        // ne voit « finie » qu'une fois la table complète posée.
+        if (restants.length === 0 && enCours === 0) setFinie(lecture);
       });
     };
 
     const suivant = async (): Promise<void> => {
       const id = restants.shift();
       if (id === undefined || parti) return;
+      enCours += 1;
       try {
         memoire.set(id, await lireModele(id));
       } catch (cause) {
         console.error(`le modèle de la décoration ${id} ne se lit pas`, cause);
       }
+      enCours -= 1;
       publier();
       return suivant();
     };
@@ -1121,9 +1646,10 @@ function useModeles(ids: number[], archive: EtatArchive | null): Map<number, Mai
     return () => {
       parti = true;
     };
-  }, [cle, ouverte]);
+  }, [cle, ouverte, lecture]);
 
-  return ouverte ? modeles : VIDE;
+  // Sans archive, rien n'est en route : les repères sont la vue finale.
+  return ouverte ? { modeles, prets: !cle || finie === lecture } : { modeles: VIDE, prets: true };
 }
 
 const VIDE = new Map<number, Maillage[]>();
