@@ -31,16 +31,17 @@ const VERS_THREE = new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0,
 /** La place d'une décoration dans la scène. La convention des rotations du
  *  jeu n'est pas documentée ; elle est **mesurée** sur la Serre Silvie, dont
  *  le toit tient sur des murs inclinés sur deux axes : les angles se lisent
- *  dans le sens inverse, et s'appliquent z d'abord, puis y, puis x. Toute
- *  autre lecture couche les murs du toit et fait sortir les chevrons du
- *  pavillon. */
+ *  dans le sens inverse, et s'appliquent z d'abord, puis x, puis y. C'est la
+ *  seule lecture où chaque mur du toit reste dans l'axe de sa rangée : z,
+ *  puis y, puis x les tord de 14° autour de la pente, et les autres couchent
+ *  les murs ou font sortir les chevrons du pavillon. */
 function matriceDe(decoration: Decoration, avecEchelle: boolean): THREE.Matrix4 {
   const [x, y, z] = decoration.position;
   const [rx, ry, rz] = decoration.rotation;
   const echelle = avecEchelle ? decoration.echelle : 1;
   const placement = new THREE.Matrix4()
     .makeTranslation(x, y, z)
-    .multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(-rx, -ry, -rz, "XYZ")))
+    .multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(-rx, -ry, -rz, "YXZ")))
     .multiply(new THREE.Matrix4().makeScale(echelle, echelle, echelle));
   return VERS_THREE.clone().multiply(placement).multiply(VERS_THREE);
 }

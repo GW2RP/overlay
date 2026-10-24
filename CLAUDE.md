@@ -278,8 +278,10 @@ Un fichier dont une décoration est illisible **se refuse entier** : en sauter
 une montrerait un pavillon qui n'est pas le sien. `pos` est en pouces dans le
 repère de la carte, z vers le **bas** ; `rot` en radians. La convention des
 rotations n'est écrite nulle part : elle est **mesurée** (`matriceDe`), sur un
-toit de murs inclinés sur deux axes. Ne pas la « corriger » sans refaire la
-mesure sur une disposition qui en a.
+toit de murs inclinés sur deux axes : chaque mur doit rester dans l'axe de la
+rangée qu'il forme avec ses voisins, ce que seul l'ordre z, x, y donne — z, y, x
+paraissait juste de loin et les tordait de 14°. Ne pas la « corriger » sans
+refaire la mesure sur une disposition qui en a.
 
 **Les modèles viennent de l'archive `Gw2.dat` de la machine**, jamais d'un
 serveur : rien n'en est redistribué, et rien n'en est rangé à côté. Le crate
