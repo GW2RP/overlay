@@ -7,14 +7,17 @@
 //! jeu écrit.
 
 mod dispositions;
+mod mcp;
 mod mumble;
 mod overlays;
 mod pavillon;
 mod plateau;
 
+use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri::webview::PageLoadEvent;
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
 use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
 
 use overlays::{Edition, FicheCourante, Verrous, Zone, FENETRE_PRINCIPALE};
@@ -91,25 +94,35 @@ fn fiche_courante(app: AppHandle) -> Option<String> {
     overlays::fiche_courante(&app)
 }
 
-/// Asynchrone : créer une fenêtre depuis une commande synchrone bloque sous
-/// Windows.
+/// La fenêtre de l'éditeur, construite à la première demande. Depuis une
+/// commande synchrone, la construire bloque sous Windows : on l'appelle d'une
+/// commande asynchrone, ou d'un fil à soi comme celui d'une requête MCP.
+pub(crate) fn fenetre_pavillon(app: &AppHandle) -> Result<WebviewWindow, String> {
+    // Le bouton de la principale et une requête MCP peuvent la demander au
+    // même instant : sans ce verrou, les deux la verraient absente, et la
+    // seconde construction échouerait sur une étiquette déjà prise.
+    static CONSTRUCTION: Mutex<()> = Mutex::new(());
+    let _tour = CONSTRUCTION
+        .lock()
+        .map_err(|_| "l'éditeur de pavillon est inaccessible".to_string())?;
+    if let Some(fenetre) = app.get_webview_window(FENETRE_PAVILLON) {
+        return Ok(fenetre);
+    }
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == FENETRE_PAVILLON)
+        .ok_or_else(|| "l'éditeur de pavillon n'est pas déclaré".to_string())?;
+    tauri::WebviewWindowBuilder::from_config(app, config)
+        .and_then(|constructeur| constructeur.build())
+        .map_err(|erreur| erreur.to_string())
+}
+
 #[tauri::command]
 async fn ouvrir_pavillon(app: AppHandle) -> Result<(), String> {
-    let fenetre = match app.get_webview_window(FENETRE_PAVILLON) {
-        Some(fenetre) => fenetre,
-        None => {
-            let config = app
-                .config()
-                .app
-                .windows
-                .iter()
-                .find(|w| w.label == FENETRE_PAVILLON)
-                .ok_or_else(|| "l'éditeur de pavillon n'est pas déclaré".to_string())?;
-            tauri::WebviewWindowBuilder::from_config(&app, config)
-                .and_then(|constructeur| constructeur.build())
-                .map_err(|erreur| erreur.to_string())?
-        }
-    };
+    let fenetre = fenetre_pavillon(&app)?;
     fenetre.show().map_err(|erreur| erreur.to_string())?;
     let _ = fenetre.unminimize();
     fenetre.set_focus().map_err(|erreur| erreur.to_string())
@@ -166,6 +179,7 @@ pub fn run() {
         .manage(FicheCourante::default())
         .manage(pavillon::Pavillon::default())
         .manage(dispositions::DossierDispositions::default())
+        .manage(mcp::Mcp::default())
         .invoke_handler(tauri::generate_handler![
             lire_edition,
             regler_edition,
@@ -188,8 +202,20 @@ pub fn run() {
             dispositions::lire_disposition,
             dispositions::ecrire_disposition,
             dispositions::exporter_disposition,
+            mcp::etat_mcp,
+            mcp::regler_mcp,
+            mcp::renouveler_jeton_mcp,
+            mcp::mcp_pret,
+            mcp::mcp_repondre,
             lire_mumble,
         ])
+        .on_page_load(|vue, chargement| {
+            // Une page de l'éditeur qui se recharge n'écoute plus les appels
+            // MCP tant qu'elle ne s'est pas redite prête.
+            if vue.label() == FENETRE_PAVILLON && chargement.event() == PageLoadEvent::Started {
+                mcp::page_chargee(vue.app_handle());
+            }
+        })
         .on_window_event(|fenetre, evenement| {
             // Fermer la fenêtre principale la range au lieu de la détruire :
             // l'application continue derrière son icône, et les overlays
@@ -251,6 +277,9 @@ pub fn run() {
             overlays::suivre_les_cadenas(app.handle().clone());
 
             suivre_mumble(app.handle().clone());
+
+            // Le serveur MCP de l'éditeur, s'il était allumé.
+            mcp::demarrer(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())
