@@ -6,6 +6,7 @@
 //! hub ; il ne décide ni de ce qu'une fenêtre laisse passer, ni de ce que le
 //! jeu écrit.
 
+mod dispositions;
 mod mumble;
 mod overlays;
 mod pavillon;
@@ -22,7 +23,7 @@ use overlays::{Edition, FicheCourante, Verrous, Zone, FENETRE_PRINCIPALE};
 /// range quand on la ferme pour se rouvrir telle qu'on l'avait laissée. Elle
 /// ne naît qu'à la première demande (`create: false`) : née au démarrage,
 /// elle chargerait three.js et rouvrirait l'archive du jeu pour rien.
-const FENETRE_PAVILLON: &str = "pavillon";
+pub(crate) const FENETRE_PAVILLON: &str = "pavillon";
 
 /// Émis à toutes les fenêtres à chaque lecture du lien, avec `Option<Lien>`.
 const EVENEMENT_MUMBLE: &str = "mumble";
@@ -157,10 +158,14 @@ pub fn run() {
         // `opener` envoie les liens vers le hub au navigateur de la personne,
         // jamais à la vue web d'un élément.
         .plugin(tauri_plugin_opener::init())
+        // `dialog` ouvre les boîtes de dossier et d'enregistrement du système,
+        // depuis Rust seulement : le front n'en reçoit aucune permission.
+        .plugin(tauri_plugin_dialog::init())
         .manage(Edition::default())
         .manage(Verrous::default())
         .manage(FicheCourante::default())
         .manage(pavillon::Pavillon::default())
+        .manage(dispositions::DossierDispositions::default())
         .invoke_handler(tauri::generate_handler![
             lire_edition,
             regler_edition,
@@ -176,6 +181,12 @@ pub fn run() {
             ouvrir_pavillon,
             pavillon::ouvrir_archive,
             pavillon::modele_decoration,
+            dispositions::dossier_dispositions,
+            dispositions::choisir_dossier,
+            dispositions::lister_dispositions,
+            dispositions::lire_disposition,
+            dispositions::ecrire_disposition,
+            dispositions::exporter_disposition,
             lire_mumble,
         ])
         .on_window_event(|fenetre, evenement| {

@@ -274,12 +274,54 @@ elle ne naît qu'à la première demande (`create: false`, construite par
 `ouvrir_pavillon`) : née cachée au démarrage, elle rouvrirait l'archive à
 chaque lancement sans qu'on ait rien demandé.
 
+**On l'y corrige, et on l'enregistre.** Les dispositions vivent dans un
+dossier choisi — à défaut `Documents\Guild Wars 2\Homesteads`, que le système
+situe, sous OneDrive compris : il change d'une machine à l'autre. **Rust tient
+ce dossier** (`DossierDispositions`, `src-tauri/src/dispositions.rs`) : seule
+la boîte de choix le change, et il se range dans un fichier à lui, à côté des
+données de l'application — pas dans le magasin, que le front écrit. Le front ne
+fait que le montrer ; il ne passe qu'un **nom de fichier**, jamais un chemin,
+et Rust ne répond qu'à la fenêtre `pavillon`. Une écriture confirme le dossier
+que l'écran montrait (`attendu`) : changé entre-temps, rien ne s'écrit. Les
+boîtes de dossier et d'enregistrement s'ouvrent depuis Rust — le greffon
+`dialog` en crate seul, sans paquet npm ni permission au front —, donc l'export
+est la seule écriture hors du dossier, et son chemin sort de la boîte du
+système, `.xml` compris : on n'y ajoute pas d'extension après la
+confirmation. Enregistrer écrit par défaut un **nouveau** fichier, qui n'en
+écrase aucun ; remplacer l'original se choisit, ne s'offre que dans le dossier
+d'où la disposition vient, et passe par un fichier voisin renommé par-dessus.
+
+**L'écriture rend l'octet d'un export du jeu** : `ecrireDisposition` reprend
+l'en-tête lu tel quel et écrit chaque prop au gabarit du jeu — quatre espaces,
+six décimales, `\n`. Une disposition exportée par le jeu, lue puis enregistrée
+sans retouche, ressort identique, et c'est ce qui garantit que l'éditeur ne
+change que ce qu'on a touché. Un fichier retouché ailleurs — BOM, fins de ligne
+`\r\n`, attributs inconnus, plus de six décimales — ressort, lui, au gabarit du
+jeu. L'échelle va par **252e** (`PAS_ECHELLE`) : chaque échelle des exports du
+jeu en est un multiple entier, ce que 1/63 ne tient pas (2,003968 = 505/252). Un
+angle s'écrit dans [0, 2π).
+
+**Une décoration a une clé** (`cle`), donnée à la lecture ou à l'ajout et
+jamais reprise : sélection, inspecteur et scène s'y accrochent, pas au rang dans
+le fichier, qui bouge avec un retrait. Chaque geste pose une nouvelle liste
+(`useHistorique`) et « annuler » rend la précédente. Un **déplacement** n'ajoute
+que la translation — angles et échelle restent ceux du fichier, au chiffre
+près —, une rotation ou une échelle repasse par `decomposer`, l'inverse exact de
+`matriceDe`. Les poignées tiennent un pivot au centre de la sélection : pendant
+le glissé la scène suit seule, rien ne s'y reconstruit — un lot de modèles
+qui arrive attend le relâché —, et le geste ne remonte qu'au relâché. Le pas
+des poignées compte depuis le départ du glissé, pas depuis l'origine. La caméra
+se cadre à l'ouverture d'une disposition (`cadrage`), jamais après un geste.
+Une décoration ajoutée se pose au point que la vue regarde, ramené au sol.
+
 Un fichier dont une décoration est illisible **se refuse entier** : en sauter
 une montrerait un pavillon qui n'est pas le sien. `pos` est en pouces dans le
 repère de la carte, z vers le **bas** ; `rot` en radians. La convention des
 rotations n'est écrite nulle part : elle est **mesurée** (`matriceDe`), sur un
-toit de murs inclinés sur deux axes. Ne pas la « corriger » sans refaire la
-mesure sur une disposition qui en a.
+toit de murs inclinés sur deux axes : chaque mur doit rester dans l'axe de la
+rangée qu'il forme avec ses voisins, ce que seul l'ordre z, x, y donne — z, y, x
+paraissait juste de loin et les tordait de 14°. Ne pas la « corriger » sans
+refaire la mesure sur une disposition qui en a.
 
 **Les modèles viennent de l'archive `Gw2.dat` de la machine**, jamais d'un
 serveur : rien n'en est redistribué, et rien n'en est rangé à côté. Le crate
@@ -313,8 +355,8 @@ modèle en OBJ pour le regarder ailleurs.
 
 ## Frontières
 
-- `src-tauri/**` ne connaît ni le hub ni l'API du jeu : il lit le lien et
-  l'archive, tient les fenêtres, et c'est tout. Les requêtes réseau partent du front, par le
+- `src-tauri/**` ne connaît ni le hub ni l'API du jeu : il lit le lien,
+  l'archive et le dossier des dispositions, tient les fenêtres, et c'est tout. Les requêtes réseau partent du front, par le
   greffon `http`, sous la capacité qui les borne.
 - Le vocabulaire du hub (`src/lib/domaine.ts`) recopie ses valeurs et ses
   libellés ; une valeur inconnue s'affiche telle quelle plutôt que de faire

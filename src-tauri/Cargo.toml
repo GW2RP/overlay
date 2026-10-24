@@ -38,6 +38,10 @@ tauri-plugin-global-shortcut = "2.3"
 tauri-plugin-updater = "2.12"
 # Les liens vers le hub s'ouvrent dans le navigateur, jamais dans la vue web.
 tauri-plugin-opener = "2.5"
+# Les boîtes de choix de dossier et d'enregistrement de l'éditeur de pavillon.
+# Le crate seul, sans son paquet npm : elles s'ouvrent depuis Rust, et le front
+# n'a pas de chemin à nommer.
+tauri-plugin-dialog = "2"
 # La lecture de l'archive du jeu, pour les modèles du pavillon : un crate à
 # part, sans dépendance, qui se compile et se teste hors de Windows.
 archive-gw2 = { path = "archive-gw2" }
