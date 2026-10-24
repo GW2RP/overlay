@@ -245,10 +245,12 @@ impl<'a> Bits<'a> {
     }
 
     fn regarder(&self, n: u32) -> u32 {
+        debug_assert!((1..=32).contains(&n));
         self.tete >> (32 - n)
     }
 
     fn jeter(&mut self, n: u32) -> Result<(), ErreurTexture> {
+        debug_assert!((1..=32).contains(&n));
         if n > self.disponibles {
             return Err(ErreurTexture::Tronquee);
         }
@@ -724,6 +726,9 @@ fn decoder_niveau(format: u32, niveau: Niveau<'_>) -> Result<Image, ErreurTextur
         }
     }
 
+    // L'alpha d'un bloc DXTL module sa couleur : une fois appliqué, il ne dit
+    // plus rien, et surtout pas une transparence. Tyria3D le garde, et
+    // découperait une texture sombre comme un feuillage.
     if format == DXTL {
         for pixel in rgba.as_chunks_mut::<4>().0 {
             let a = u32::from(pixel[3]);

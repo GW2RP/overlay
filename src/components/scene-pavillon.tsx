@@ -178,6 +178,10 @@ type Monde = {
   sortes: THREE.Group;
   /** L'avant des repères. */
   traits: THREE.Group;
+  /** Le cadre des modèles choisis : leur boîte, au trait. La teinte seule ne
+   *  suffit pas — le carmin posé sur une écorce sombre la rend presque
+   *  noire. */
+  cadres: THREE.Group;
   /** Le matériau des repères : la couleur est portée par chaque instance. */
   materiau: THREE.MeshLambertMaterial;
   /** Le matériau des maillages sans texture, à la couleur des modèles ;
@@ -185,7 +189,7 @@ type Monde = {
   materiauNu: THREE.MeshLambertMaterial;
   /** Un matériau par texture, gardé tant que la scène vit : plusieurs
    *  sortes partagent la même écorce. */
-  materiauxTextures: Map<number, THREE.MeshLambertMaterial>;
+  materiauxTextures: Map<number, { lue: TextureLue; materiau: THREE.MeshLambertMaterial }>;
   /** Une géométrie par sorte, gardée d'un geste à l'autre : un mur de
    *  quatorze mille sommets ne se recalcule pas à chaque déplacement. */
   geometries: Map<number, { source: Maillage[] | null; geometrie: THREE.BufferGeometry }>;
@@ -274,8 +278,9 @@ export function ScenePavillon({
 
     const sortes = new THREE.Group();
     const traits = new THREE.Group();
+    const cadres = new THREE.Group();
     const pivot = new THREE.Object3D();
-    scene.add(sortes, traits, pivot);
+    scene.add(sortes, traits, cadres, pivot);
 
     // Le cadre : la caméra embrasse toutes les décorations.
     const boite = new THREE.Box3();
@@ -317,6 +322,9 @@ export function ScenePavillon({
       if (!m) return;
       pivot.updateMatrixWorld();
       enGlisse.current = true;
+      // Les cadres ne suivent pas le glissé : ils reviennent avec la
+      // sélection transformée.
+      cadres.visible = false;
       const places = [...courant.current.selection].flatMap((cle) => {
         const place = m.places.get(cle);
         return place ? [place] : [];
@@ -333,6 +341,7 @@ export function ScenePavillon({
       const depart = glisse;
       glisse = null;
       enGlisse.current = false;
+      cadres.visible = true;
       if (differee.current) {
         differee.current = false;
         setRattrapage((n) => n + 1);
@@ -459,6 +468,7 @@ export function ScenePavillon({
       rendre,
       sortes,
       traits,
+      cadres,
       materiau,
       materiauNu,
       materiauxTextures,
@@ -477,10 +487,11 @@ export function ScenePavillon({
       differee.current = false;
       viderSortes(sortes);
       vider(traits);
+      vider(cadres);
       geometries.forEach(({ geometrie }) => geometrie.dispose());
       materiau.dispose();
       materiauNu.dispose();
-      materiauxTextures.forEach((m) => {
+      materiauxTextures.forEach(({ materiau: m }) => {
         m.map?.dispose();
         m.dispose();
       });
@@ -593,6 +604,8 @@ export function ScenePavillon({
     const couleurChoisie = jeton("--crimson");
     const centre = new THREE.Vector3();
     const point = new THREE.Vector3();
+    const matrice = new THREE.Matrix4();
+    const aretes: number[] = [];
     let choisies = 0;
     for (const [cle, place] of m.places) {
       const choisie = selection.has(cle);
@@ -603,9 +616,21 @@ export function ScenePavillon({
       if (choisie) {
         centre.add(point.setFromMatrixPosition(matriceDe(place.decoration, false)));
         choisies += 1;
+        if (place.aUnModele) {
+          const geometrie = place.instances.geometry;
+          if (!geometrie.boundingBox) geometrie.computeBoundingBox();
+          place.instances.getMatrixAt(place.rang, matrice);
+          aretesDeBoite(geometrie.boundingBox!, matrice, aretes);
+        }
       }
     }
     couleursAJour(m.sortes);
+    vider(m.cadres);
+    if (aretes.length > 0) {
+      const geometrie = new THREE.BufferGeometry();
+      geometrie.setAttribute("position", new THREE.Float32BufferAttribute(aretes, 3));
+      m.cadres.add(new THREE.LineSegments(geometrie, new THREE.LineBasicMaterial({ color: couleurChoisie })));
+    }
 
     if (choisies > 0) {
       m.pivot.position.copy(centre.divideScalar(choisies));
@@ -643,18 +668,44 @@ function materiauDe(
   const fichier = maillage.texture;
   const lue = fichier === null ? undefined : textures.get(fichier);
   if (fichier === null || !lue) return m.materiauNu;
-  let materiau = m.materiauxTextures.get(fichier);
-  if (!materiau) {
-    materiau = new THREE.MeshLambertMaterial({
-      side: THREE.DoubleSide,
-      map: textureDe(lue),
-      // L'alpha d'une texture qui ne découpe rien porte autre chose — un
-      // reflet — et ne se lit pas comme une transparence.
-      alphaTest: lue.decoupee ? SEUIL_DECOUPE : 0,
-    });
-    m.materiauxTextures.set(fichier, materiau);
+  let gardee = m.materiauxTextures.get(fichier);
+  // Une archive rouverte relit ses textures : le même fichier peut alors
+  // porter d'autres pixels, et l'ancien matériau ne les montrerait pas.
+  if (gardee && gardee.lue !== lue) {
+    gardee.materiau.map?.dispose();
+    gardee.materiau.dispose();
+    gardee = undefined;
   }
-  return materiau;
+  if (!gardee) {
+    gardee = {
+      lue,
+      materiau: new THREE.MeshLambertMaterial({
+        side: THREE.DoubleSide,
+        map: textureDe(lue),
+        // L'alpha d'une texture qui ne découpe rien porte autre chose — un
+        // reflet — et ne se lit pas comme une transparence.
+        alphaTest: lue.decoupee ? SEUIL_DECOUPE : 0,
+      }),
+    };
+    m.materiauxTextures.set(fichier, gardee);
+  }
+  return gardee.materiau;
+}
+
+/** Les douze arêtes d'une boîte placée par `matrice`, ajoutées à `sortie` en
+ *  segments. */
+function aretesDeBoite(boite: THREE.Box3, matrice: THREE.Matrix4, sortie: number[]) {
+  const { min, max } = boite;
+  const coins = [0, 1, 2, 3, 4, 5, 6, 7].map((i) =>
+    new THREE.Vector3(i & 1 ? max.x : min.x, i & 2 ? max.y : min.y, i & 4 ? max.z : min.z).applyMatrix4(matrice),
+  );
+  // Deux coins sont reliés quand ils ne diffèrent que d'un axe.
+  for (let a = 0; a < 8; a++) {
+    for (const axe of [1, 2, 4]) {
+      if (a & axe) continue;
+      sortie.push(...coins[a].toArray(), ...coins[a | axe].toArray());
+    }
+  }
 }
 
 /** Les couleurs posées par `setColorAt` partent au prochain rendu. */

@@ -187,34 +187,36 @@ pub fn lire_textures(fichier: &FichierPf<'_>) -> Result<Vec<Option<u32>>, Erreur
     permutation.sauter(8)?;
     let (debut, nombre) = permutation.tableau_de(p)?;
 
-    let mut textures = Vec::with_capacity(nombre);
-    for i in 0..nombre {
-        let mut pointeur = fichier.curseur(debut + i * p);
-        let Some(materiau) = pointeur.pointeur()? else {
-            textures.push(None);
-            continue;
-        };
-        let mut m = fichier.curseur(materiau);
-        m.sauter(8 + 4)?; // jeton, identifiant
-        m.pointeur()?; // fichier du matériau
-        m.sauter(4 + 4)?; // drapeaux, ordre de tri
-                          // Une texture : son fichier, ses drapeaux, son jeton, puis de quoi
-                          // l'animer.
-        let taille_texture = p + 4 + 8 + 8 + 4 + 1;
-        let (debut_textures, n) = m.tableau_de(taille_texture)?;
-        let mut couleur = None;
-        for t in 0..n {
-            let mut texture = fichier.curseur(debut_textures + t * taille_texture);
-            let fichier_texture = texture.reference_fichier()?;
-            texture.sauter(4)?;
-            if texture.u32()? == JETON_COULEUR && fichier_texture.is_some() {
-                couleur = fichier_texture;
-                break;
-            }
-        }
-        textures.push(couleur);
-    }
+    // Un matériau illisible ne coûte que sa texture : les autres restent.
+    let textures = (0..nombre)
+        .map(|i| texture_du_materiau(fichier, debut + i * p).unwrap_or(None))
+        .collect();
     Ok(textures)
+}
+
+/// La texture de couleur du matériau dont le pointeur est à `position`.
+fn texture_du_materiau(fichier: &FichierPf<'_>, position: usize) -> Result<Option<u32>, ErreurPf> {
+    let p = fichier.curseur(0).taille_pointeur();
+    let Some(materiau) = fichier.curseur(position).pointeur()? else {
+        return Ok(None);
+    };
+    let mut m = fichier.curseur(materiau);
+    m.sauter(8 + 4)?; // jeton, identifiant
+    m.pointeur()?; // fichier du matériau
+    m.sauter(4 + 4)?; // drapeaux, ordre de tri
+                      // Une texture : son fichier, ses drapeaux, son jeton, puis de quoi
+                      // l'animer.
+    let taille_texture = p + 4 + 8 + 8 + 4 + 1;
+    let (debut, n) = m.tableau_de(taille_texture)?;
+    for t in 0..n {
+        let mut texture = fichier.curseur(debut + t * taille_texture);
+        let fichier_texture = texture.reference_fichier()?;
+        texture.sauter(4)?;
+        if texture.u32()? == JETON_COULEUR && fichier_texture.is_some() {
+            return Ok(fichier_texture);
+        }
+    }
+    Ok(None)
 }
 
 fn lire_maillage(mut c: Curseur<'_>) -> Result<Option<Maillage>, ErreurPf> {

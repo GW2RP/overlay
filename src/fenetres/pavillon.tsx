@@ -1082,6 +1082,8 @@ function useModeles(ids: number[], archive: EtatArchive | null): Map<number, Mai
   const cle = ids.join(",");
   const ouverte = archive?.chemin ?? null;
 
+  // L'effet suit l'archive elle-même, pas son chemin : rouverte au même
+  // endroit après une mise à jour, elle relit ses modèles.
   useEffect(() => {
     if (!cle || !ouverte) return;
     let parti = false;
@@ -1126,16 +1128,23 @@ function useModeles(ids: number[], archive: EtatArchive | null): Map<number, Mai
     return () => {
       parti = true;
     };
-  }, [cle, ouverte]);
+    // `archive` change à chaque ouverture, `ouverte` n'en est que le chemin.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cle, archive]);
 
   return ouverte ? modeles : VIDE;
 }
 
 const VIDE = new Map<number, Maillage[]>();
 
-/** Les textures déjà lues, par archive puis par fichier ; `null` pour une
- *  texture qui ne se lit pas, qu'on ne redemande pas. */
-const texturesLues = new Map<string, Map<number, TextureLue | null>>();
+/** Les textures déjà demandées, par archive puis par fichier ; `null` pour une
+ *  texture qui ne se lit pas, qu'on ne redemande pas. La lecture en cours y
+ *  est déjà : un nouveau lot de modèles relance l'effet, et ne redemande pas
+ *  ce que le précédent attend encore. */
+const texturesLues = new Map<string, Map<number, DemandeTexture>>();
+
+/** Une texture demandée : sa lecture, et ce qu'elle a rendu une fois finie. */
+type DemandeTexture = { lecture: Promise<TextureLue | null>; lue?: TextureLue | null };
 
 /** Les textures des modèles lus, au fil des lectures comme les modèles.
  *  Chaque fichier ne se demande qu'une fois : plusieurs sortes partagent la
@@ -1165,9 +1174,14 @@ function useTextures(
     }
     const memoire = lues;
     const fichiers = cle.split(",").map(Number);
-    const presentes = () =>
-      new Map(fichiers.flatMap((f) => (memoire.has(f) ? [[f, memoire.get(f) ?? null]] : [])));
-    const restantes = fichiers.filter((f) => !memoire.has(f));
+    // Ce qui est déjà lu se montre tout de suite : attendre une lecture en
+    // cours le rendrait à l'or le temps d'une image.
+    const presentes = new Map<number, TextureLue | null>(
+      fichiers.flatMap((f) => {
+        const demande = memoire.get(f);
+        return demande && demande.lue !== undefined ? [[f, demande.lue]] : [];
+      }),
+    );
 
     let enAttente = false;
     const publier = () => {
@@ -1175,19 +1189,32 @@ function useTextures(
       enAttente = true;
       requestAnimationFrame(() => {
         enAttente = false;
-        if (!parti) setTextures(presentes());
+        if (!parti) setTextures(new Map(presentes));
       });
     };
 
+    const lire = (fichier: number) => {
+      let demande = memoire.get(fichier);
+      if (!demande) {
+        const nouvelle: DemandeTexture = {
+          lecture: lireTexture(fichier)
+            .catch((cause) => {
+              console.error(`la texture ${fichier} ne se lit pas`, cause);
+              return null;
+            })
+            .then((lue) => (nouvelle.lue = lue)),
+        };
+        demande = nouvelle;
+        memoire.set(fichier, demande);
+      }
+      return demande.lecture;
+    };
+
+    const restantes = fichiers.filter((f) => !presentes.has(f));
     const suivante = async (): Promise<void> => {
       const fichier = restantes.shift();
       if (fichier === undefined || parti) return;
-      try {
-        memoire.set(fichier, await lireTexture(fichier));
-      } catch (cause) {
-        memoire.set(fichier, null);
-        console.error(`la texture ${fichier} ne se lit pas`, cause);
-      }
+      presentes.set(fichier, await lire(fichier));
       publier();
       return suivante();
     };
@@ -1197,7 +1224,9 @@ function useTextures(
     return () => {
       parti = true;
     };
-  }, [cle, ouverte]);
+    // `archive` change à chaque ouverture, `ouverte` n'en est que le chemin.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cle, archive]);
 
   return ouverte ? textures : SANS_TEXTURES;
 }
