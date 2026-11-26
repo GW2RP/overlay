@@ -17,7 +17,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # de travail : un seul verrou, un seul dossier de compilation, et `fmt`,
 # `clippy` et `test` le couvrent avec `--workspace`.
 [workspace]
-members = [".", "archive-gw2", "serveur-mcp"]
+members = [".", "archive-gw2", "serveur-mcp", "presence-discord"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -48,6 +48,9 @@ archive-gw2 = { path = "archive-gw2" }
 # Le serveur MCP local de l'éditeur de pavillon : le protocole et ses
 # garde-fous, dans un crate à part qui se teste hors de Windows.
 serveur-mcp = { path = "serveur-mcp" }
+# La présence Discord : le protocole du client Discord local et le fil qui la
+# tient à jour, dans un crate à part qui se teste hors de Windows.
+presence-discord = { path = "presence-discord" }
 # Le jeton du serveur MCP : tiré du générateur du système.
 getrandom = "0.3"
 serde = { version = "1", features = ["derive"] }

@@ -16,7 +16,15 @@ import {
   useEdition,
   useVisibilites,
 } from "@/lib/overlays";
-import { usePosition } from "@/lib/position";
+import { usePosition, type Position } from "@/lib/position";
+import {
+  DESCRIPTION_MAX,
+  ecrireReglagesDiscord,
+  useEtatPresence,
+  usePresenceDiscord,
+  useReglagesDiscord,
+} from "@/lib/presence";
+import { quitterLieu, useEntretienPresence, useLieuDeclare } from "@/lib/presence-lieu";
 import {
   ecrireElementsOuverts,
   ecrireOpacite,
@@ -42,6 +50,11 @@ import type { Utilisateur } from "@/lib/types";
  */
 export function FenetrePrincipale() {
   const { session, rafraichir } = useSession();
+  // La position, la présence Discord et la déclaration à un lieu vivent ici :
+  // la fenêtre principale tourne tant que l'application tourne, rangée ou non.
+  const position = usePosition();
+  usePresenceDiscord(position);
+  useEntretienPresence(position);
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-[560px] flex-col gap-6 px-5 py-6">
@@ -56,7 +69,11 @@ export function FenetrePrincipale() {
       {session.etat === "chargement" ? (
         <p className="meta text-ink-muted">Session…</p>
       ) : session.etat === "connecte" ? (
-        <TableauDeBord utilisateur={session.utilisateur} onDeconnexion={rafraichir} />
+        <TableauDeBord
+          utilisateur={session.utilisateur}
+          position={position}
+          onDeconnexion={rafraichir}
+        />
       ) : (
         <Connexion
           message={session.etat === "injoignable" ? session.message : null}
@@ -238,14 +255,15 @@ function Connexion({
 
 function TableauDeBord({
   utilisateur,
+  position,
   onDeconnexion,
 }: {
   utilisateur: Utilisateur;
+  position: Position;
   onDeconnexion: () => Promise<void>;
 }) {
   const edition = useEdition();
   const visibilites = useVisibilites();
-  const position = usePosition();
   const [erreur, setErreur] = useState<string | null>(null);
 
   // Les éléments laissés ouverts à la fermeture précédente reviennent : c'est
@@ -331,6 +349,8 @@ function TableauDeBord({
         </ul>
       </section>
 
+      <PresenceDiscord />
+
       <Affichage />
 
       <section className="framed flex items-center justify-between gap-4 p-5">
@@ -384,6 +404,114 @@ function TableauDeBord({
 }
 
 /**
+ * La présence Discord : l'allumer, partager sa carte ou non, et dire ce que
+ * fait le personnage. Chaque frappe s'écrit dans les réglages, et Rust
+ * n'envoie à Discord qu'au rythme qu'il accepte : la dernière version part.
+ * Le lieu déclaré s'y lit aussi, et se quitte d'ici.
+ */
+function PresenceDiscord() {
+  const reglages = useReglagesDiscord();
+  const etat = useEtatPresence();
+  const lieu = useLieuDeclare();
+  const [erreur, setErreur] = useState<string | null>(null);
+
+  const ecrire = (changement: Partial<typeof reglages>) =>
+    void ecrireReglagesDiscord({ ...reglages, ...changement }).catch((cause) =>
+      console.error("la présence ne s'enregistre pas", cause),
+    );
+
+  // Discord absent n'est pas une panne : on le dit, sans alarme.
+  const statut = !etat
+    ? null
+    : !etat.disponible
+      ? "Cette version n'a pas d'application Discord."
+      : !reglages.actif
+        ? "Présence éteinte"
+        : etat.posee
+          ? "Affichée sur Discord"
+          : etat.erreur
+            ? "Discord non détecté"
+            : "En attente du jeu";
+
+  return (
+    <section className="framed flex flex-col gap-3 p-5">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="panel-title text-ink">DISCORD</h2>
+        <Button
+          type="button"
+          variant={reglages.actif ? "outline" : "quiet"}
+          size="sm"
+          aria-pressed={reglages.actif}
+          onClick={() => ecrire({ actif: !reglages.actif })}
+        >
+          {reglages.actif ? "PRÉSENCE AFFICHÉE" : "PRÉSENCE MASQUÉE"}
+        </Button>
+      </div>
+      {statut ? <p className="caption text-ink-muted">{statut}</p> : null}
+
+      <div className="flex items-center justify-between gap-4 border-t border-hairline pt-3">
+        <p className="body-compact text-ink">
+          Partager ma carte
+          <span className="block caption text-ink-muted">La carte et sa région, jamais la position.</span>
+        </p>
+        <Button
+          type="button"
+          variant={reglages.carte ? "outline" : "quiet"}
+          size="sm"
+          aria-pressed={reglages.carte}
+          disabled={!reglages.actif}
+          onClick={() => ecrire({ carte: !reglages.carte })}
+        >
+          {reglages.carte ? "PARTAGÉE" : "CACHÉE"}
+        </Button>
+      </div>
+
+      <Field
+        label={`Ce que je fais (${reglages.description.length}/${DESCRIPTION_MAX})`}
+        htmlFor="descriptionRp"
+      >
+        <Input
+          id="descriptionRp"
+          maxLength={DESCRIPTION_MAX}
+          value={reglages.description}
+          disabled={!reglages.actif}
+          placeholder="Tient le comptoir de la Taverne du Lion"
+          onChange={(evenement) => ecrire({ description: evenement.target.value })}
+        />
+      </Field>
+
+      {lieu ? (
+        <div className="flex items-center justify-between gap-4 border-t border-hairline pt-3">
+          <p className="body-compact text-ink">
+            À {lieu.lieu.name}
+            {lieu.personnage ? (
+              <span className="block caption text-ink-muted">{lieu.personnage.name}</span>
+            ) : null}
+          </p>
+          <Button
+            type="button"
+            variant="quiet"
+            size="sm"
+            onClick={() => {
+              setErreur(null);
+              void quitterLieu().catch(() => setErreur("Le hub n'a pas pris le départ en compte."));
+            }}
+          >
+            QUITTER LE LIEU
+          </Button>
+        </div>
+      ) : null}
+
+      {erreur ? (
+        <p role="alert" className="border border-crimson-edge bg-surface-inset px-4 py-3 body-compact text-crimson-ink">
+          {erreur}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/**
  * L'opacité du fond des éléments. Le curseur écrit dans les réglages à chaque
  * cran, et chaque élément à l'écran suit : on règle en regardant le jeu au
  * travers, pas à l'aveugle. Le texte, lui, reste entier quelle que soit la
@@ -413,7 +541,7 @@ function Affichage() {
   );
 }
 
-function EtatDuJeu({ position }: { position: ReturnType<typeof usePosition> }) {
+function EtatDuJeu({ position }: { position: Position }) {
   if (position.etat === "sans-jeu") return <p className="meta text-ink-muted">Jeu non détecté</p>;
   if (position.etat === "sans-carte") {
     return <p className="meta text-ink-muted">Aucune carte chargée</p>;

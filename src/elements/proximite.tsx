@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { BoutonVerrou } from "@/components/bouton-verrou";
+import { PropositionLieu } from "@/components/proposition-lieu";
 import { ReglageStatut } from "@/components/reglage-statut";
 import { StatutLieu } from "@/components/statut-lieu";
 import { EnCours, EnPanne, EtatSansPosition } from "@/components/etat-element";
@@ -169,6 +170,15 @@ function Alentours({
 
   return (
     <div className="flex flex-col gap-3" aria-live="polite">
+      {/* Cadenas fermé, les clics passent au jeu : la question ne recevrait
+          pas sa réponse. */}
+      {!verrouille ? (
+        <PropositionLieu
+          plusProche={lieux[0] ?? null}
+          personnage={position.lien.identite?.name ?? null}
+        />
+      ) : null}
+
       <Section titre="LIEUX">
         {lieux.length === 0 ? (
           <Vide libelle="Aucun lieu à proximité" />
@@ -184,7 +194,15 @@ function Alentours({
                   <PlaceGlyph type={lieu.type} size={18} className="mt-1 text-gold-ink" />
                   <Corps
                     titre={lieu.name}
-                    sousTitre={`${libelle(PLACE_TYPE_LABELS, lieu.type)} · ${lieu.district ?? libelle(REGION_LABELS, lieu.region)}`}
+                    sousTitre={[
+                      libelle(PLACE_TYPE_LABELS, lieu.type),
+                      lieu.district ?? libelle(REGION_LABELS, lieu.region),
+                      lieu.presentCount
+                        ? `${lieu.presentCount} présent${lieu.presentCount > 1 ? "s" : ""}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                     statut={activite}
                   />
                   <span className="shrink-0 pt-0.5 text-right caption text-ink-body">

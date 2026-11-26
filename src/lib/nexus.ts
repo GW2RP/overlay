@@ -7,6 +7,8 @@ import type {
   Evenement,
   Lieu,
   LieuGere,
+  PersonnageDuCompte,
+  PresenceLieu,
   Recherche,
   ReleveMeteo,
   ScenesDuJour,
@@ -294,4 +296,49 @@ export async function ecrireActivite(
   );
   if (!donnees?.activity) throw new ErreurHub(statut, "Le hub n'a pas rendu le statut.");
   return donnees.activity;
+}
+
+/* --- Le personnage joué et sa présence à un lieu ------------------------------ */
+
+/** Les personnages du compte connecté. Vide sans session, ou d'un hub d'avant
+ *  cette adresse : un personnage sans fiche n'est pas une panne. */
+export async function personnagesDuCompte(): Promise<PersonnageDuCompte[]> {
+  if (!(await lireJeton())) return [];
+  try {
+    const { donnees } = await requete<{ personnages: PersonnageDuCompte[] }>(
+      "/api/personnages/miens",
+    );
+    return donnees?.personnages ?? [];
+  } catch (erreur) {
+    if (erreur instanceof ErreurHub && (erreur.nonAutorise || erreur.statut === 404)) return [];
+    throw erreur;
+  }
+}
+
+/** La présence déclarée par le compte connecté, ou `null`. */
+export async function lirePresence(): Promise<PresenceLieu | null> {
+  if (!(await lireJeton())) return null;
+  try {
+    const { donnees } = await requete<{ presence: PresenceLieu | null }>("/api/presence");
+    return donnees?.presence ?? null;
+  } catch (erreur) {
+    if (erreur instanceof ErreurHub && (erreur.nonAutorise || erreur.statut === 404)) return null;
+    throw erreur;
+  }
+}
+
+/** Se déclare à un lieu, sous le personnage joué — ou renouvelle la
+ *  déclaration. Rend la présence écrite, échéance comprise. */
+export async function declarerPresence(slug: string, personnage: string | null): Promise<PresenceLieu> {
+  const { donnees, statut } = await requete<{ presence: PresenceLieu } | undefined>(
+    `/api/lieux/${encodeURIComponent(slug)}/presence`,
+    { methode: "POST", corps: { personnage: personnage ?? undefined, source: "overlay" } },
+  );
+  if (!donnees?.presence) throw new ErreurHub(statut, "Le hub n'a pas rendu la présence.");
+  return donnees.presence;
+}
+
+/** Quitte le lieu où l'on s'était déclaré. */
+export async function quitterPresence(): Promise<void> {
+  await requete("/api/presence/quitter", { methode: "POST", corps: {} });
 }

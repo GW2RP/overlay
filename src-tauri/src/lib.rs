@@ -6,6 +6,7 @@
 //! hub ; il ne décide ni de ce qu'une fenêtre laisse passer, ni de ce que le
 //! jeu écrit.
 
+mod discord;
 mod dispositions;
 mod mcp;
 mod mumble;
@@ -180,6 +181,7 @@ pub fn run() {
         .manage(pavillon::Pavillon::default())
         .manage(dispositions::DossierDispositions::default())
         .manage(mcp::Mcp::default())
+        .manage(discord::Discord::default())
         .invoke_handler(tauri::generate_handler![
             lire_edition,
             regler_edition,
@@ -208,6 +210,8 @@ pub fn run() {
             mcp::mcp_pret,
             mcp::mcp_repondre,
             lire_mumble,
+            discord::regler_presence,
+            discord::etat_presence,
         ])
         .on_page_load(|vue, chargement| {
             // Une page de l'éditeur qui se recharge n'écoute plus les appels

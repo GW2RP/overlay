@@ -226,12 +226,14 @@ Une recherche (`/api/recherche`) part après un temps d'arrêt de la frappe, à
 partir de deux caractères, et remplace les alentours tant que le champ n'est
 pas vide.
 
-**Toutes ces routes sont publiques**, sauf les scènes du jour : l'overlay ne
+**Toutes ces routes sont publiques**, sauf les scènes du jour, les
+personnages du compte et la présence à un lieu : l'overlay ne
 montre que ce que le hub montre à qui n'est pas connecté. Le jeton sert à la
 session — savoir qui est là — et n'ouvre de scène privée que dans
 « Aujourd'hui », à celui qui pourrait déjà la lire sur le site.
 
-**Sauf le statut des lieux qu'on tient**, la seule chose que l'overlay écrive.
+**Sauf le statut des lieux qu'on tient**, la seule chose que l'overlay écrive
+avec la présence à un lieu (plus bas).
 Un lieu se déclare actif ou inactif, avec un court message (`Activite`,
 `src/lib/activite.ts`), et redevient inactif de lui-même à son échéance
 (`until`) : les alentours arrivent jugés, mais resservis par le CDN, donc
@@ -253,6 +255,63 @@ qu'on quitte, pas un panneau vide. Les textes longs du hub — description,
 accès — sont du **markdown**, rendus par `Markdown` avec les règles du site :
 une image ne s'affiche que si elle vient du magasin (`estImageDuMagasin`), et un
 lien s'ouvre dans le navigateur, jamais dans la fenêtre.
+
+## La présence Discord
+
+**Sous le nom du joueur, ses amis lisent le personnage qu'il joue**, ce qu'il
+fait en jeu de rôle, et où — s'il le partage. Le client Discord de la machine
+écoute un canal local, `discord-ipc-N` (un tube nommé sous Windows) : on s'y
+présente avec l'identifiant de l'application « GW2 Roleplay », **sans OAuth**,
+poser une présence n'en demande pas. Le protocole et le fil qui la tient vivent
+dans le crate `src-tauri/presence-discord`, sans dépendance, testé hors de
+Windows ; `src-tauri/src/discord.rs` n'en déclare que les commandes.
+
+**Le front compose, Rust pose.** Le front connaît le nom des cartes, la fiche
+du personnage, le lieu déclaré et les choix du joueur : il compose l'activité
+(`composerActivite`, `src/lib/presence.ts`) depuis la **fenêtre principale**,
+qui vit tant que l'application tourne, et la confie à `regler_presence`.
+Rust la borne aux limites de Discord — 128 caractères par ligne, deux
+boutons, des liens `https` seulement : au-delà, Discord refuse l'activité
+entière, pas le champ —, tient la seule connexion, la reprend quand Discord
+redémarre, et **n'envoie pas plus d'une activité toutes les quatre
+secondes** : Discord en accepte cinq par vingt secondes et ignore le reste
+sans le dire. Une frappe dans la description n'est donc pas un envoi ; c'est
+la dernière version qui part. `regler_presence` ne bloque jamais, Discord
+absent ou figé.
+
+L'identifiant de l'application vient de la construction
+(`GW2RP_DISCORD_ID`, variable du dépôt lue par `publier.yml`) : une version
+construite sans lui n'a pas de présence, et la principale le dit.
+
+Trois réglages (`discord` dans le magasin) : la présence, **allumée** par
+défaut ; la carte, **éteinte** par défaut — une position ne se partage que
+parce qu'on l'a choisi, et ce n'est jamais que la carte et sa région ; la
+description, une ligne libre. Un **lieu déclaré s'affiche même carte
+cachée** : se déclarer à la taverne, c'est déjà le dire. La ligne RP passe
+avant le lieu, qui glisse alors au survol de l'image. « Fiche du personnage »
+n'apparaît que si le personnage joué porte le nom d'une fiche du compte
+(`/api/personnages/miens`) ; « depuis 12 min » compte depuis que ce
+personnage est en jeu, pas depuis le dernier changement de carte.
+
+## « Je suis à ce lieu »
+
+La présence à un lieu du hub, d'où le hub tire la fréquentation en direct.
+Elle vit **au hub** ; sa copie dans le magasin (`lieuDeclare`) la partage
+entre la principale, qui l'**entretient** (`useEntretienPresence`), « À
+proximité », qui la **propose**, et la présence Discord, qui l'affiche.
+
+À moins de `RAYON_PROPOSITION` d'un lieu, « À proximité » demande « Êtes-vous
+à … ? » — connecté et cadenas ouvert seulement. Oui, on s'y déclare sous le
+nom en jeu du personnage, que le hub relie à sa fiche s'il en a une ; non, la
+question ne revient plus pour ce lieu tant que la fenêtre vit. Une
+déclaration de l'overlay vit **un quart d'heure** au hub : la principale la
+renouvelle tant qu'on reste à moins de `RAYON_MAINTIEN`, et la **retire** au-delà
+ou quand le personnage joué change. Le jeu fermé, plus rien ne la renouvelle,
+et elle tombe d'elle-même. Une déclaration faite **sur le site** vit deux
+heures et ne suit pas la position : le lieu peut se tenir dans une instance
+que la carte du continent ne situe pas. La principale relit la déclaration au
+hub (`/api/presence`) toutes les cinq minutes et à chaque changement de
+session : ce que le hub dit fait foi.
 
 ## Les réglages
 
@@ -407,7 +466,8 @@ tôt, il montrerait des repères là où le jeu a des murs.
 
 - `src-tauri/**` ne connaît ni le hub ni l'API du jeu : il lit le lien,
   l'archive et le dossier des dispositions, tient les fenêtres, écoute le
-  serveur MCP local, et c'est tout. Les requêtes réseau partent du front, par le
+  serveur MCP local, pose la présence Discord que le front a composée, et
+  c'est tout. Les requêtes réseau partent du front, par le
   greffon `http`, sous la capacité qui les borne.
 - Le vocabulaire du hub (`src/lib/domaine.ts`) recopie ses valeurs et ses
   libellés ; une valeur inconnue s'affiche telle quelle plutôt que de faire
@@ -428,7 +488,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -
 
 Le crate ne se compile entièrement que sous Windows : `ring`, tiré par le
 greffon `http`, demande la chaîne MSVC. Ailleurs, `cargo test` sur le module
-`mumble`, sur `archive-gw2` et sur `serveur-mcp` passe, et le reste se vérifie par le workflow `verifier.yml`.
+`mumble`, sur `archive-gw2`, sur `serveur-mcp` et sur `presence-discord` passe, et le reste se vérifie par le workflow `verifier.yml`.
 
 ## Publier
 
