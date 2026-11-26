@@ -50,6 +50,9 @@ export type LieuProche = {
   upcomingEventCount: number;
   /** Absent d'un hub d'avant les statuts. */
   activity?: Activite | null;
+  /** Combien de comptes s'y déclarent en ce moment. Absent d'un hub d'avant
+   *  la fréquentation. */
+  presentCount?: number;
   distance: number;
 };
 
@@ -183,4 +186,22 @@ export type Recherche = {
   personnages: { total: number; items: Personnage[] };
   groupes: { total: number; items: Groupe[] };
   evenements: { total: number; items: Evenement[] };
+};
+
+/** `GET /api/personnages/miens` : les personnages du compte connecté, pour
+ *  relier le personnage joué à sa fiche. */
+export type PersonnageDuCompte = { id: string; slug: string; name: string };
+
+/** Une présence déclarée à un lieu : « je suis à la Taverne du Lion ».
+ *  `until` est son échéance, jugée à la lecture comme le statut d'un lieu. */
+export type PresenceLieu = {
+  lieu: { id: string; slug: string; name: string; coordinates: { x: number; y: number } | null };
+  /** Le personnage sous lequel on s'y déclare : son nom en jeu, et sa fiche
+   *  s'il en a une sur le hub. */
+  personnage: { name: string; slug: string | null } | null;
+  /** D'où vient la déclaration : l'overlay la renouvelle et la retire selon
+   *  la position, le site la laisse vivre deux heures. */
+  source: "overlay" | "site";
+  since: string;
+  until: string;
 };

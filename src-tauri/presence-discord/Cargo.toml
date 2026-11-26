@@ -1,0 +1,12 @@
+[package]
+name = "presence-discord"
+version = "0.1.0"
+description = "La présence Discord de l'overlay : le protocole IPC du client Discord local, et le fil qui tient la présence à jour."
+authors = ["La communauté GW2RP"]
+edition = "2021"
+publish = false
+
+# `serde_json` seulement : le crate se compile et se teste hors de Windows,
+# comme `archive-gw2` et `serveur-mcp`, sans la chaîne MSVC du binaire Tauri.
+[dependencies]
+serde_json = "1"

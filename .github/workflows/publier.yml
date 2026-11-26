@@ -128,6 +128,10 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # L'application Discord de la présence (« GW2 Roleplay ») : un
+          # identifiant public, rangé en variable du dépôt. Sans elle,
+          # l'installeur n'a pas de présence Discord, et le dit.
+          GW2RP_DISCORD_ID: ${{ vars.GW2RP_DISCORD_ID }}
         # Le chemin se résout depuis le dossier de travail, pas depuis src-tauri.
         run: npm run tauri build -- --config src-tauri/updater.conf.json
 

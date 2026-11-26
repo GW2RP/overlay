@@ -21,6 +21,8 @@ const CLE_ELEMENTS_OUVERTS = "elementsOuverts";
 const CLE_CARTES = "cartes";
 const CLE_OPACITE = "opacite";
 const CLE_ARCHIVE = "archiveGw2";
+const CLE_DISCORD = "discord";
+const CLE_LIEU_DECLARE = "lieuDeclare";
 
 /** L'opacité du fond des éléments, en pourcent. Le plancher garde un fond qui
  *  se voit encore : à zéro, le texte flotterait sur le jeu sans rien derrière. */
@@ -187,4 +189,6 @@ export const CLES = {
   fenetres: CLE_FENETRES,
   elementsOuverts: CLE_ELEMENTS_OUVERTS,
   opacite: CLE_OPACITE,
+  discord: CLE_DISCORD,
+  lieuDeclare: CLE_LIEU_DECLARE,
 } as const;
