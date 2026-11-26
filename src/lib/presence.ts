@@ -5,6 +5,7 @@ import { PROFESSION_LABELS, RACE_MUMBLE_LABELS } from "@/lib/domaine";
 import { useLecturePeriodique } from "@/lib/lecture";
 import { personnagesDuCompte } from "@/lib/nexus";
 import type { Position } from "@/lib/position";
+import { memeNom } from "@/lib/noms";
 import { useLieuDeclare } from "@/lib/presence-lieu";
 import { CLES, lireMagasin, lireUrlHub, surChangement } from "@/lib/reglages";
 import { useSessionCourante } from "@/lib/session-courante";
@@ -93,11 +94,6 @@ export type ActiviteDiscord = {
   boutons?: { libelle: string; url: string }[];
 };
 
-/** Deux personnages ne se distinguent pas par la casse ni les espaces. */
-export function memeNom(a: string, b: string): boolean {
-  const propre = (texte: string) => texte.trim().replace(/\s+/g, " ").toLocaleLowerCase("fr-FR");
-  return propre(a) === propre(b);
-}
 
 export function composerActivite({
   position,
@@ -213,11 +209,13 @@ export function usePresenceDiscord(position: Position): void {
   }, []);
 
   // « Depuis 12 min » compte depuis que ce personnage est en jeu, pas depuis
-  // le dernier changement de carte.
+  // le dernier changement de carte : un écran de chargement, où le jeu
+  // n'écrit plus le lien, ne le remet pas à zéro. Seul un autre personnage le
+  // fait.
   const nom = position.etat === "sans-jeu" ? null : (position.lien.identite?.name ?? null);
   const [depuis, setDepuis] = useState<{ nom: string; debut: number } | null>(null);
-  if ((depuis?.nom ?? null) !== nom) setDepuis(nom === null ? null : { nom, debut: maintenant() });
-  const debut = depuis?.nom === nom ? (depuis?.debut ?? null) : null;
+  if (nom !== null && depuis?.nom !== nom) setDepuis({ nom, debut: maintenant() });
+  const debut = nom !== null && depuis?.nom === nom ? depuis.debut : null;
 
   const fiche =
     session !== null && nom && personnages.etat === "lu"
@@ -236,9 +234,23 @@ export function usePresenceDiscord(position: Position): void {
         });
   const cle = JSON.stringify(activite);
 
+  // Une présence qui s'efface attend `GRACE_MS` : un changement de carte
+  // passe par un écran de chargement où le jeu n'écrit plus le lien, et la
+  // présence ne doit pas clignoter à chaque portail. Le jeu fermé, elle
+  // tombe une minute après.
   useEffect(() => {
-    void invoke("regler_presence", { activite: JSON.parse(cle) as ActiviteDiscord | null }).catch(
-      (erreur) => console.error("la présence ne se pose pas", erreur),
-    );
+    const poser = () =>
+      void invoke("regler_presence", { activite: JSON.parse(cle) as ActiviteDiscord | null }).catch(
+        (erreur) => console.error("la présence ne se pose pas", erreur),
+      );
+    if (cle !== "null") {
+      poser();
+      return;
+    }
+    const minuterie = setTimeout(poser, GRACE_MS);
+    return () => clearTimeout(minuterie);
   }, [cle]);
 }
+
+/** Le temps qu'une présence survit au lien qui se tait. */
+const GRACE_MS = 60_000;

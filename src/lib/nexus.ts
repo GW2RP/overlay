@@ -329,16 +329,25 @@ export async function lirePresence(): Promise<PresenceLieu | null> {
 
 /** Se déclare à un lieu, sous le personnage joué — ou renouvelle la
  *  déclaration. Rend la présence écrite, échéance comprise. */
-export async function declarerPresence(slug: string, personnage: string | null): Promise<PresenceLieu> {
+export async function declarerPresence(
+  slug: string,
+  personnage: string | null,
+  renouveler = false,
+): Promise<PresenceLieu> {
   const { donnees, statut } = await requete<{ presence: PresenceLieu } | undefined>(
     `/api/lieux/${encodeURIComponent(slug)}/presence`,
-    { methode: "POST", corps: { personnage: personnage ?? undefined, source: "overlay" } },
+    {
+      methode: "POST",
+      corps: { personnage: personnage ?? undefined, source: "overlay", renouveler: renouveler || undefined },
+    },
   );
   if (!donnees?.presence) throw new ErreurHub(statut, "Le hub n'a pas rendu la présence.");
   return donnees.presence;
 }
 
-/** Quitte le lieu où l'on s'était déclaré. */
-export async function quitterPresence(): Promise<void> {
-  await requete("/api/presence/quitter", { methode: "POST", corps: {} });
+/** Quitte le lieu où l'on s'était déclaré. Avec `lieu`, ne quitte que la
+ *  présence de l'overlay à ce lieu : une déclaration faite ailleurs depuis le
+ *  site entre-temps reste. */
+export async function quitterPresence(lieu?: string): Promise<void> {
+  await requete("/api/presence/quitter", { methode: "POST", corps: lieu ? { lieu } : {} });
 }

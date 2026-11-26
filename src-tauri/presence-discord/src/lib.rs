@@ -278,10 +278,12 @@ impl<C: Read + Write> Client<C> {
                 }
                 OP_TRAME if charge.get("nonce").and_then(Value::as_str) == Some(&nonce) => {
                     if charge.get("evt").and_then(Value::as_str) == Some("ERROR") {
-                        return Err(io::Error::other(format!(
-                            "Discord refuse l'activité : {}",
-                            message_de(&charge)
-                        )));
+                        // `InvalidInput` : la connexion va bien, c'est
+                        // l'activité qui est refusée.
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Discord refuse l'activité : {}", message_de(&charge)),
+                        ));
                     }
                     return Ok(());
                 }
@@ -301,6 +303,11 @@ impl<C: Read + Write> Client<C> {
 /// est le bon.
 const CANAUX: u32 = 10;
 
+/// Un tube ouvert en lecture synchrone n'a pas de délai de lecture : un
+/// Discord figé au milieu d'une réponse tiendrait le fil jusqu'à ce qu'il
+/// se termine. Rien d'autre n'attend ce fil — `Presence::regler` ne fait que
+/// ranger l'activité —, donc l'application n'en souffre pas, seule la
+/// présence cesse de suivre.
 #[cfg(windows)]
 pub type Canal = std::fs::File;
 
@@ -518,12 +525,23 @@ where
                 dernier_envoi = Some(Instant::now());
             }
             envoyee = Some(version);
-            noter(partage, version, true, None);
+            // Effacée n'est pas « posée » : l'écran ne doit pas annoncer une
+            // présence affichée, jeu fermé.
+            noter(partage, version, false, None);
             continue;
         };
 
         if client.is_none() {
-            match ouvrir().and_then(|canal| Client::connecter(canal, id_application)) {
+            // Discord absent se dit d'un mot ; un refus — un identifiant
+            // d'application invalide — se dit tel que Discord le donne.
+            let connexion = match ouvrir() {
+                Ok(canal) => Client::connecter(canal, id_application),
+                Err(_) => Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "Discord non détecté",
+                )),
+            };
+            match connexion {
                 Ok(nouveau) => client = Some(nouveau),
                 Err(erreur) => {
                     prochaine_tentative = Instant::now() + RECONNEXION;
@@ -542,9 +560,15 @@ where
                 envoyee = Some(version);
                 noter(partage, version, true, None);
             }
+            Err(erreur) if erreur.kind() == io::ErrorKind::InvalidInput => {
+                // L'activité est refusée, la connexion tient : la renvoyer
+                // telle quelle serait refusée de même. On attend la suivante.
+                envoyee = Some(version);
+                noter(partage, version, false, Some(erreur.to_string()));
+            }
             Err(erreur) => {
-                // La connexion est perdue ou refusée : on la refait au
-                // prochain tour, et la même activité repart.
+                // La connexion est perdue : on la refait au prochain tour, et
+                // la même activité repart.
                 client = None;
                 envoyee = None;
                 prochaine_tentative = Instant::now() + RECONNEXION;
@@ -754,7 +778,7 @@ mod tests {
         }
         let etat = presence.etat();
         assert!(!etat.posee);
-        assert!(etat.erreur.unwrap().contains("pas lancé"));
+        assert_eq!(etat.erreur.as_deref(), Some("Discord non détecté"));
     }
 
     #[test]

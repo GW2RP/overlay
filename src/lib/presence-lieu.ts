@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 
 import { distance } from "@/lib/carte";
 import { useLecturePeriodique } from "@/lib/lecture";
-import { declarerPresence, lirePresence, quitterPresence } from "@/lib/nexus";
+import { declarerPresence, ErreurHub, lirePresence, quitterPresence } from "@/lib/nexus";
 import type { Position } from "@/lib/position";
 import { CLES, lireMagasin, surChangement } from "@/lib/reglages";
 import { useSessionCourante } from "@/lib/session-courante";
 import type { PresenceLieu } from "@/lib/types";
+import { memeNom } from "@/lib/noms";
 
 /**
  * « Je suis à ce lieu » : la présence déclarée à un lieu du hub, d'où le hub
@@ -30,8 +31,10 @@ export const RAYON_PROPOSITION = 60;
 /** Au-delà, une déclaration de l'overlay se retire : on a quitté le lieu. Plus
  *  large que la proposition, pour qu'un pas de côté ne la fasse pas tomber. */
 export const RAYON_MAINTIEN = 150;
-/** On renouvelle quand il reste moins que ceci avant l'échéance. */
-const MARGE_RENOUVELLEMENT_MS = 8 * 60 * 1000;
+/** On renouvelle à ce rythme une déclaration d'un quart d'heure. Compté sur
+ *  l'horloge de la machine depuis qu'on l'a reçue, jamais sur l'échéance du
+ *  hub : une horloge en avance renouvellerait en rafale. */
+const RENOUVELLEMENT_MS = 7 * 60 * 1000;
 /** La relecture de la déclaration au hub : une déclaration faite ou retirée
  *  sur le site se voit ici. */
 const RELECTURE_MS = 5 * 60 * 1000;
@@ -53,14 +56,32 @@ export async function seDeclarer(slug: string, personnage: string | null): Promi
   return presence;
 }
 
-/** Quitte le lieu déclaré. La copie s'efface même si le hub ne répond pas :
- *  l'échéance fera le reste là-bas. */
+/** Quitte le lieu déclaré, quel qu'il soit : c'est le bouton. La copie
+ *  s'efface même si le hub ne répond pas : l'échéance fera le reste là-bas. */
 export async function quitterLieu(): Promise<void> {
   try {
     await quitterPresence();
   } finally {
     await ranger(null);
   }
+}
+
+/** Ce que l'overlay fait seul, sans qu'on le lui demande : renouveler ou
+ *  retirer **sa** déclaration à **ce** lieu. Le hub refuse un renouvellement
+ *  et ignore un départ visant une présence qui a changé entre-temps — quittée
+ *  ou déplacée depuis le site — et l'on reprend alors ce qu'il dit. */
+async function renouveler(slug: string, personnage: string | null): Promise<void> {
+  try {
+    await ranger(await declarerPresence(slug, personnage, true));
+  } catch (erreur) {
+    if (erreur instanceof ErreurHub && erreur.statut === 409) await ranger(valide(await lirePresence()));
+    else throw erreur;
+  }
+}
+
+async function retirer(slug: string): Promise<void> {
+  await quitterPresence(slug);
+  await ranger(valide(await lirePresence()));
 }
 
 /** La présence déclarée, suivie d'où qu'elle soit écrite, et jugée à son
@@ -125,25 +146,34 @@ export function useEntretienPresence(position: Position): void {
       : null;
   const pres = ecart !== null && ecart <= RAYON_MAINTIEN;
   const loin = ecart !== null && ecart > RAYON_MAINTIEN;
-  // Un autre personnage que celui déclaré : ce n'est plus lui qui y est.
+  // Un autre personnage que celui déclaré : ce n'est plus lui qui y est. Le
+  // hub rend le nom de la fiche, qui peut différer du nom en jeu par la casse
+  // ou les espaces.
   const autre =
-    declare?.source === "overlay" && nom !== null && declare.personnage !== null && declare.personnage.name !== nom;
+    declare?.source === "overlay" &&
+    nom !== null &&
+    declare.personnage !== null &&
+    !memeNom(declare.personnage.name, nom);
+
+  const slug = declare?.source === "overlay" ? declare.lieu.slug : null;
+  // L'échéance identifie la déclaration : la relecture périodique rend la
+  // même, et ne doit pas repousser le renouvellement.
+  const echeance = declare?.source === "overlay" ? declare.until : null;
 
   useEffect(() => {
-    if (!declare || declare.source !== "overlay") return;
-    if (loin || autre) {
-      void quitterLieu().catch((erreur) => console.error("la présence ne se retire pas", erreur));
-      return;
-    }
-    if (!pres) return;
-    const reste = new Date(declare.until).getTime() - Date.now();
+    if (!slug || !(loin || autre)) return;
+    void retirer(slug).catch((erreur) => console.error("la présence ne se retire pas", erreur));
+  }, [slug, loin, autre]);
+
+  useEffect(() => {
+    if (!slug || !echeance || !pres) return;
     const minuterie = setTimeout(
       () =>
-        void seDeclarer(declare.lieu.slug, nom).catch((erreur) =>
+        void renouveler(slug, nom).catch((erreur) =>
           console.error("la présence ne se renouvelle pas", erreur),
         ),
-      Math.max(reste - MARGE_RENOUVELLEMENT_MS, 0),
+      RENOUVELLEMENT_MS,
     );
     return () => clearTimeout(minuterie);
-  }, [declare, pres, loin, autre, nom]);
+  }, [slug, echeance, pres, nom]);
 }

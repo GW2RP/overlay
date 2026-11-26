@@ -414,6 +414,11 @@ function PresenceDiscord() {
   const etat = useEtatPresence();
   const lieu = useLieuDeclare();
   const [erreur, setErreur] = useState<string | null>(null);
+  // La frappe vit ici, et part au magasin à chaque touche : contrôlé par le
+  // magasin, le champ attendrait l'aller-retour, perdrait une lettre sur deux
+  // et renverrait le curseur à la fin.
+  const [brouillon, setBrouillon] = useState<string | null>(null);
+  const description = brouillon ?? reglages.description;
 
   const ecrire = (changement: Partial<typeof reglages>) =>
     void ecrireReglagesDiscord({ ...reglages, ...changement }).catch((cause) =>
@@ -430,7 +435,7 @@ function PresenceDiscord() {
         : etat.posee
           ? "Affichée sur Discord"
           : etat.erreur
-            ? "Discord non détecté"
+            ? etat.erreur
             : "En attente du jeu";
 
   return (
@@ -467,16 +472,19 @@ function PresenceDiscord() {
       </div>
 
       <Field
-        label={`Ce que je fais (${reglages.description.length}/${DESCRIPTION_MAX})`}
+        label={`Ce que je fais (${description.length}/${DESCRIPTION_MAX})`}
         htmlFor="descriptionRp"
       >
         <Input
           id="descriptionRp"
           maxLength={DESCRIPTION_MAX}
-          value={reglages.description}
+          value={description}
           disabled={!reglages.actif}
           placeholder="Tient le comptoir de la Taverne du Lion"
-          onChange={(evenement) => ecrire({ description: evenement.target.value })}
+          onChange={(evenement) => {
+            setBrouillon(evenement.target.value);
+            ecrire({ description: evenement.target.value });
+          }}
         />
       </Field>
 
